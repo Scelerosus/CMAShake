@@ -936,7 +936,10 @@ namespace CMAShake
                     // for, and she is left alone from then on.
                     m_herCheckAt = 0f;
                     float after = m_herShine.m_targetBrillos.vag;
-                    bool lowered = after < m_herTargetBefore - 0.01f;
+                    // Already at the most she can be, her target can only stay or fall back by itself: that says nothing.
+                    var cfg = m_herShine.config;
+                    float most = cfg != null && cfg.maxBrilloVag > 0.01f ? cfg.maxBrilloVag : 1f;
+                    bool lowered = m_herTargetBefore < most * 0.97f && after < m_herTargetBefore - 0.01f;
                     Plugin.ModLog.LogInfo($"Ride: wet: her target went {m_herTargetBefore:F2} -> {after:F2} with {m_herAskSet:F2} asked: {(lowered ? "asking LOWERS it, she is left alone" : after > m_herTargetBefore + 0.01f ? "asking works" : "no change yet")}.");
                     if (lowered)
                     {

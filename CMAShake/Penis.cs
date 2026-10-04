@@ -73,7 +73,9 @@ namespace CMAShake
                     return;
                 }
 
-                // The mesh as it is drawn now, in the world.
+                // The mesh as it is drawn now, in the world. Whether the baked points have the renderer's scale in them or
+                // not is told by their size: the mesh's own size times its scale is how big it is in the world. (Its model
+                // is in centimetres with a scale of 0.01: taken the wrong way, he came out 22 m long.)
                 var baked = new Mesh();
                 best.BakeMesh(baked, true);
                 var vs = baked.vertices;
@@ -84,12 +86,19 @@ namespace CMAShake
                     return;
                 }
                 Transform rt = best.transform;
+                Vector3 scale = rt.lossyScale;
+                float bakedSize = baked.bounds.size.magnitude;
+                float worldSize = Vector3.Scale(best.sharedMesh.bounds.size, scale).magnitude;
+                float scaleSize = (Mathf.Abs(scale.x) + Mathf.Abs(scale.y) + Mathf.Abs(scale.z)) / 3f;
+                UnityEngine.Object.Destroy(baked);
+                // As they are (scale already in them), or scaled by the renderer: whichever comes out nearer its true size.
+                bool scaleIn = Mathf.Abs(Mathf.Log(Mathf.Max(1e-6f, bakedSize) / Mathf.Max(1e-6f, worldSize)))
+                    <= Mathf.Abs(Mathf.Log(Mathf.Max(1e-6f, bakedSize * scaleSize) / Mathf.Max(1e-6f, worldSize)));
                 var pts = new Vector3[n];
                 for (int i = 0; i < n; i++)
                 {
-                    pts[i] = rt.position + rt.rotation * vs[i];
+                    pts[i] = scaleIn ? rt.position + rt.rotation * vs[i] : rt.TransformPoint(vs[i]);
                 }
-                UnityEngine.Object.Destroy(baked);
 
                 if (!LongAxis(pts, out Vector3 mean, out Vector3 axis, out float lo, out float hi))
                 {
@@ -126,6 +135,13 @@ namespace CMAShake
                 Vector3 baseW = baseLow ? a : b2;
                 Vector3 tipW = baseLow ? b2 : a;
 
+                float length = (tipW - baseW).magnitude;
+                // And it grows from his crotch: a base far from his hips is a measuring gone wrong.
+                if (length < 0.06f || length > 0.4f || (baseW - m_heroHomeHips).magnitude > 0.35f)
+                {
+                    Plugin.ModLog.LogInfo($"Ride: penis: '{best.name}' measured {length * 100f:F0} cm with its base {(baseW - m_heroHomeHips).magnitude * 100f:F0} cm from his hips, which cannot be right; he is lined up by his hips.");
+                    return;
+                }
                 m_penisBaseBone = NearestBone(bones, baseW);
                 m_penisTipBone = NearestBone(bones, tipW);
                 if (m_penisBaseBone == null || m_penisTipBone == null)
@@ -137,7 +153,7 @@ namespace CMAShake
                 m_penisHomeBase = baseW;
                 m_penisHomeTip = tipW;
                 m_penisValid = true;
-                Plugin.ModLog.LogInfo($"Ride: penis: '{best.name}', {(tipW - baseW).magnitude * 100f:F0} cm from base to tip (base on '{m_penisBaseBone.name}', tip on '{m_penisTipBone.name}').");
+                Plugin.ModLog.LogInfo($"Ride: penis: '{best.name}', {length * 100f:F0} cm from base to tip (base on '{m_penisBaseBone.name}', tip on '{m_penisTipBone.name}'; baked points {(scaleIn ? "already scaled" : "scaled here")}), base at {baseW.ToString("F2")}, tip at {tipW.ToString("F2")}.");
             }
             catch (Exception ex)
             {
