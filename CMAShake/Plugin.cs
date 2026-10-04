@@ -16,7 +16,7 @@ namespace CMAShake
     {
         public const string PluginGuid = "community.cma.shake";
         public const string PluginName = "CMA Shake";
-        public const string PluginVersion = "0.15.1";
+        public const string PluginVersion = "0.16.0";
 
         internal static ManualLogSource ModLog;
         internal static ConfigFile Cfg;
@@ -105,7 +105,7 @@ namespace CMAShake
             RideFrequency = Config.Bind("Ride", "Frequency", 1.7f, "Strokes per second (the tempo drifts around this).");
             RideSquat = Config.Bind("Ride", "Squat", 0.64f, "How far her hips drop, in metres: the lowest point of the stroke. The feet stay planted and the knees fold. She cannot go lower than the hero's body: where it is in the way, the bottom of the stroke is on him.");
             RideSink = Config.Bind("Ride", "SinkIntoHim", 0.04f, "How far she may sink into the hero's body, in metres, as soft bodies give: 0 keeps her just touching him, more lets her settle lower onto him.");
-            RideHandsOn = Config.Bind("Ride", "HandsOn", "Hero", "Where her hands rest during the ride: Hero (on his chest), HeroThighs (on his thighs behind her, and she leans back to reach them) or Thighs (on her own thighs).");
+            RideHandsOn = Config.Bind("Ride", "HandsOn", "Hero", "Where her hands rest during the ride: Hero (on his chest; with her back to him, on his thighs), HeroThighs (on his thighs: behind her, and she leans back to reach them, or in front of her when her back is to him) or Thighs (on her own thighs).");
             RideFacing = Config.Bind("Ride", "Facing", "Face", "Which way she faces during the ride: Face (toward the hero, his head under her face) or Away (reverse: her back to him, his head behind her, her hands on his thighs or knees in front).");
             RidePoseType = Config.Bind("Ride", "PoseType", "", "The ride pose chosen last in the window: Cowgirl, Lean back, Upright or Reverse (empty until one is chosen). Choosing one sets the hands, the facing and the lean.");
             TwerkPoseType = Config.Bind("Pose", "Type", "", "The twerk pose chosen last in the window: Bent over, Deep squat, Hands on hips or Low arch (empty until one is chosen). Choosing one sets the lean, the arch, the squat, the stance and the hands.");

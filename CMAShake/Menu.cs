@@ -1203,14 +1203,25 @@ namespace CMAShake
         private static void SmoothRow(Styles st)
         {
             Slider(st, T("Smoothness", "Плавность"), Plugin.Smoothness, 0f, 1f, "0", " %", 100f,
-                T("Rounds off every movement. 100 % is the softest; lower is sharper, with a harder drop.", "Сглаживает все движения. 100 % — самое мягкое; меньше — резче, с более жёстким опусканием."));
+                T("Rounds off every movement. 100 % is the softest; lower is sharper, with a harder drop.", "Сглаживает все движения. 100 % — мягче всего, меньше — резче, она опускается жёстче."));
+        }
+
+        private static bool IsSteady()
+        {
+            return string.Equals(Plugin.Rhythm.Value, "Steady", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static void MoveSecondsRow(Styles st)
+        {
+            Slider(st, T("Change moves every", "Менять движение каждые"), Plugin.MoveSeconds, 2f, 20f, "0", Sec, 1f,
+                T("How long she keeps one move before going on to the next. 6 is normal.", "Сколько она делает одно движение, прежде чем перейти к следующему. Обычно 6."));
         }
 
         private static void TransitionRow(Styles st)
         {
             Slider(st, T("Transition time", "Время перехода"), Plugin.PoseRamp, 0.3f, 4f, "0.0", Sec, 1f,
                 T("How long she takes to get into and out of a pose, to change from the twerk to the ride, and to move to a new pose or put her hands elsewhere.",
-                  "Сколько она входит в позу и выходит из неё, переходит от тверка к райду, меняет позу или положение рук."));
+                  "За сколько секунд она встаёт в позу и выходит из неё, переходит от тверка к райду, меняет позу или кладёт руки в другое место."));
         }
 
         // Kinds of pose: choosing one sets a bundle of the settings. What was set before is kept as the profile "_last".
@@ -1250,7 +1261,7 @@ namespace CMAShake
 
             CardBegin(st, null);
             GUILayout.Label(T("Now", "Сейчас"), st.dim);
-            GUILayout.Label(ride ? T("She is riding him", "Она на нём: райд идёт") : twerk ? T("She is twerking", "Она тверкает") : T("Nothing is running", "Ничего не запущено"),
+            GUILayout.Label(ride ? T("She is riding him", "Она сверху на нём") : twerk ? T("She is twerking", "Она тверкает") : T("Nothing is running", "Ничего не запущено"),
                 ride || twerk ? st.statusOn : st.status);
             Gap(6f);
             GUILayout.BeginHorizontal();
@@ -1276,20 +1287,15 @@ namespace CMAShake
             GUILayout.EndHorizontal();
             CardEnd();
 
-            CardBegin(st, T("How she moves", "Как она двигается"));
+            CardBegin(st, T("How she moves (twerk and ride)", "Как она двигается (тверк и райд)"));
             PresetRow(st);
             RhythmRow(st);
+            if (!IsSteady())
+            {
+                MoveSecondsRow(st);
+            }
             SmoothRow(st);
             TransitionRow(st);
-            CardEnd();
-
-            CardBegin(st, T("Speed", "Скорость"));
-            Slider(st, T("Twerk", "Тверк"), Plugin.Frequency, 0.1f, 5f, "0.00", PerSec, 1f,
-                T("Bounces per second in the twerk.", "Тактов в секунду в тверке."));
-            Slider(st, T("Ride", "Райд"), Plugin.RideFrequency, 0.05f, 4f, "0.00", PerSec, 1f,
-                T("Strokes per second in the ride. Go low for a slow ride.", "Тактов в секунду в райде. Чем меньше, тем медленнее она двигается."));
-            Slider(st, T("Ride: stroke length", "Райд: длина хода"), Plugin.RideBounce, 0f, 0.3f, "0", Cm, 100f,
-                T("How far her hips rise from where she sits on him before they come down again.", "На сколько её бёдра поднимаются от посадки на нём, прежде чем опуститься снова."));
             CardEnd();
 
             CardBegin(st, T("Poses", "Позы"));
@@ -1297,8 +1303,8 @@ namespace CMAShake
             PoseRow(st, T("Ride pose", "Поза в райде"), Poses.Ride, Plugin.RidePoseType);
             CardEnd();
 
-            GUILayout.Label(T("The Twerk and Ride pages have everything else. Profiles keeps whole sets of settings under a name.",
-                "Всё остальное на страницах «Тверк» и «Райд». В «Профилях» можно сохранить весь набор настроек под именем."), st.dim);
+            GUILayout.Label(T("Speed and everything else are on the Twerk and Ride pages. Profiles keeps whole sets of settings under a name.",
+                "Скорость и остальное — на страницах «Тверк» и «Райд». В «Профилях» можно сохранить все настройки под своим именем."), st.dim);
         }
 
         // ---- Twerk ----
@@ -1314,53 +1320,50 @@ namespace CMAShake
 
             CardBegin(st, T("Main", "Основное"));
             PoseRow(st, T("Pose", "Поза"), Poses.Twerk, Plugin.TwerkPoseType);
-            PresetRow(st);
-            RhythmRow(st);
             Slider(st, T("Speed", "Скорость"), Plugin.Frequency, 0.1f, 5f, "0.00", PerSec, 1f,
-                T("Bounces per second.", "Тактов в секунду."));
-            Slider(st, T("Bounce height", "Высота такта"), Plugin.BounceHeight, 0f, 0.1f, "0.0", Cm, 100f,
-                T("How far her hips go up and down.", "На сколько бёдра ходят вверх-вниз."));
-            ChoiceRow(st, T("Hands", "Руки"), new[] { T("On hips", "На бёдрах"), T("On knees", "На коленях"), T("Free", "Свободно") }, new[] { "Hips", "Knees", "None" }, Plugin.HandsOn, 100f,
-                T("Where her hands rest. Free leaves her arms to the game.", "Куда она кладёт руки. «Свободно» оставляет руки игре."));
+                T("How many times a second she bounces her hips.", "Сколько раз в секунду она подбрасывает бёдра."));
+            Slider(st, T("How high her hips go", "Как высоко подлетают бёдра"), Plugin.BounceHeight, 0f, 0.1f, "0.0", Cm, 100f,
+                T("How far her hips go up and down with each bounce.", "На сколько бёдра поднимаются и опускаются за раз."));
+            ChoiceRow(st, T("Hands", "Руки"), new[] { T("On hips", "На бёдрах"), T("On knees", "На коленях"), T("As in the game", "Как в игре") }, new[] { "Hips", "Knees", "None" }, Plugin.HandsOn, 100f,
+                T("Where she puts her hands. As in the game: the mod leaves her arms alone.", "Куда она кладёт руки. «Как в игре» — мод не трогает руки."));
             CardEnd();
 
-            if (FoldBegin(st, "twerk.motion", T("Movement", "Движение"), T("smoothness, rock, glutes, chest", "плавность, покачивание, ягодицы, грудь"), false))
+            if (FoldBegin(st, "twerk.motion", T("Body", "Тело"), T("hips, bottom, chest", "таз, попа, грудь"), false))
             {
-                SmoothRow(st);
-                Slider(st, T("Pelvis rock", "Покачивание таза"), Plugin.TiltDegrees, 0f, 20f, "0.0", "°", 1f,
-                    T("How much the pelvis tips with every bounce.", "Насколько таз наклоняется на каждом такте."));
-                Slider(st, T("Glute bounce", "Тряска ягодиц"), Plugin.ButtAmplitude, 0f, 0.08f, "0.0", Cm, 100f,
-                    T("How far the glutes wobble on their own after each bounce.", "Насколько ягодицы сами колышутся после каждого такта."));
-                Check(st, T("Bounce the chest too", "Грудь тоже колышется"), Plugin.ShakeChest,
-                    T("Lets the breasts move with her. They stay on the chest and never go far.", "Грудь двигается вместе с ней. Она остаётся на месте и далеко не уходит."));
-                Slider(st, T("Chest bounce", "Тряска груди"), Plugin.ChestAmplitude, 0f, 0.05f, "0.0", Cm, 100f,
-                    T("The most the breasts may move.", "Насколько грудь может сместиться самое большее."));
-                Slider(st, T("Seconds per move", "Секунд на движение"), Plugin.MoveSeconds, 2f, 20f, "0", Sec, 1f,
-                    T("In the Random and Scenario rhythms: how long she keeps one move before the next. 6 is normal.", "Для ритмов «Случайно» и «Сценарий»: сколько она держит одно движение до следующего. 6 — обычно."));
+                Slider(st, T("Hip tilt", "Наклон таза"), Plugin.TiltDegrees, 0f, 20f, "0.0", "°", 1f,
+                    T("How much her pelvis tips with every bounce.", "Насколько таз наклоняется при каждом движении."));
+                Slider(st, T("Bottom jiggle", "Колыхание попы"), Plugin.ButtAmplitude, 0f, 0.08f, "0.0", Cm, 100f,
+                    T("How much her bottom jiggles after each bounce.", "Насколько попа колышется после каждого движения."));
+                Check(st, T("Breasts jiggle too", "Грудь тоже колышется"), Plugin.ShakeChest,
+                    T("Lets the breasts move with her. They stay on the chest and never go far.", "Грудь двигается вместе с ней, но остаётся на месте и далеко не уходит."));
+                if (Plugin.ShakeChest.Value)
+                {
+                    Slider(st, T("Breast jiggle", "Колыхание груди"), Plugin.ChestAmplitude, 0f, 0.05f, "0.0", Cm, 100f,
+                        T("The most the breasts may move.", "Насколько сильно может колыхаться грудь."));
+                }
             }
             CardEnd();
 
-            if (FoldBegin(st, "twerk.pose", T("Fine-tune the pose", "Тонкая настройка позы"), T("lean, arch, squat, feet", "наклон, прогиб, присед, ноги"), false))
+            if (FoldBegin(st, "twerk.pose", T("Fine-tune the pose", "Подстроить позу"), T("lean, arch, squat, feet", "наклон, прогиб, присед, ноги"), false))
             {
-                Slider(st, T("Lean forward", "Наклон вперёд"), Plugin.LeanDegrees, 0f, 85f, "0", "°", 1f,
+                Slider(st, T("Bend forward", "Наклон вперёд"), Plugin.LeanDegrees, 0f, 85f, "0", "°", 1f,
                     T("How far she bends over.", "Насколько она наклоняется вперёд."));
-                Slider(st, T("Back arch", "Прогиб спины"), Plugin.Arch, 0f, 30f, "0", "°", 1f,
-                    T("Arches her back: the bottom goes up and back, the chest stays where the lean puts it.", "Прогибает спину: таз уходит вверх и назад, грудь остаётся там, куда её ставит наклон."));
-                Slider(st, T("Squat depth", "Глубина приседа"), Plugin.SquatDepth, 0f, 0.5f, "0", Cm, 100f,
+                Slider(st, T("Back arch", "Прогиб в спине"), Plugin.Arch, 0f, 30f, "0", "°", 1f,
+                    T("Arches her back: her bottom goes up and back.", "Прогибает спину: попа уходит вверх и назад."));
+                Slider(st, T("How low she squats", "Как низко она приседает"), Plugin.SquatDepth, 0f, 0.5f, "0", Cm, 100f,
                     T("How far her hips drop.", "На сколько опускаются бёдра."));
-                Slider(st, T("Hips back", "Таз назад"), Plugin.HipBack, 0f, 0.3f, "0", Cm, 100f,
-                    T("How far her hips are pushed back.", "На сколько таз отведён назад."));
+                Slider(st, T("Bottom pushed back", "Попа назад"), Plugin.HipBack, 0f, 0.3f, "0", Cm, 100f,
+                    T("How far her hips are pushed back.", "На сколько она отставляет попу назад."));
                 Slider(st, T("Feet apart", "Ноги шире"), Plugin.Stance, 0f, 0.5f, "0", Cm, 100f,
-                    T("How much wider each foot stands.", "На сколько шире стоит каждая нога."));
-                Slider(st, T("Toes out", "Носки наружу"), Plugin.ToesOut, 0f, 45f, "0", "°", 1f,
-                    T("How far the feet are turned out.", "Насколько стопы развёрнуты наружу."));
+                    T("How much wider each foot stands.", "На сколько шире она ставит каждую ногу."));
+                Slider(st, T("Toes out", "Носки врозь"), Plugin.ToesOut, 0f, 45f, "0", "°", 1f,
+                    T("How far the feet are turned out.", "Насколько носки развёрнуты наружу."));
             }
             CardEnd();
 
             ResetButton(st, T("Reset the twerk settings", "Сбросить настройки тверка"), () =>
-                ResetAll(Plugin.Smoothness, Plugin.Frequency, Plugin.BounceHeight, Plugin.TiltDegrees, Plugin.ButtAmplitude,
-                    Plugin.ShakeChest, Plugin.ChestAmplitude, Plugin.LeanDegrees, Plugin.Arch, Plugin.SquatDepth, Plugin.HipBack, Plugin.Stance, Plugin.ToesOut, Plugin.HandsOn,
-                    Plugin.Rhythm, Plugin.PresetName, Plugin.MoveSeconds));
+                ResetAll(Plugin.Frequency, Plugin.BounceHeight, Plugin.TiltDegrees, Plugin.ButtAmplitude,
+                    Plugin.ShakeChest, Plugin.ChestAmplitude, Plugin.LeanDegrees, Plugin.Arch, Plugin.SquatDepth, Plugin.HipBack, Plugin.Stance, Plugin.ToesOut, Plugin.HandsOn));
         }
 
         // ---- Ride ----
@@ -1376,57 +1379,63 @@ namespace CMAShake
 
             CardBegin(st, T("Main", "Основное"));
             PoseRow(st, T("Pose", "Поза"), Poses.Ride, Plugin.RidePoseType);
-            ChoiceRow(st, T("She faces", "Она лицом"), new[] { T("Toward him", "К нему"), T("Away from him", "От него") }, new[] { "Face", "Away" }, Plugin.RideFacing, 130f,
-                T("Toward him, or turned round (reverse): he then lies the other way under her.", "К нему или спиной: тогда он ложится под ней в другую сторону."));
-            ChoiceRow(st, T("Hands", "Руки"), new[] { T("His chest", "Его грудь"), T("His thighs", "Его бёдра"), T("Her thighs", "Свои бёдра") }, new[] { "Hero", "HeroThighs", "Thighs" }, Plugin.RideHandsOn, 100f,
-                T("Where her hands rest. On his thighs she leans back to reach them.", "Куда она кладёт руки. К его бёдрам она откидывается назад."));
-            PresetRow(st);
-            RhythmRow(st);
+            ChoiceRow(st, T("How she sits", "Как она сидит"), new[] { T("Facing him", "Лицом к нему"), T("Back to him", "Спиной к нему") }, new[] { "Face", "Away" }, Plugin.RideFacing, 130f,
+                T("Facing him, or with her back to him (reverse).", "Лицом к нему или спиной к нему (наоборот)."));
+            bool away = string.Equals(Plugin.RideFacing.Value, "Away", StringComparison.OrdinalIgnoreCase);
+            RideHandsRow(st, away);
             Slider(st, T("Speed", "Скорость"), Plugin.RideFrequency, 0.05f, 4f, "0.00", PerSec, 1f,
-                T("Strokes per second. Go low for a slow ride.", "Тактов в секунду. Чем меньше, тем медленнее."));
-            Slider(st, T("Stroke length", "Длина хода"), Plugin.RideBounce, 0f, 0.3f, "0", Cm, 100f,
-                T("How far her hips rise from where she sits on him before they come down again.", "На сколько её бёдра поднимаются от посадки на нём, прежде чем опуститься снова."));
-            Slider(st, T("Squat", "Присед"), Plugin.RideSquat, 0f, 1f, "0", Cm, 100f,
-                T("How low she goes. She cannot go lower than his body: set it deep and she sits on him.", "Насколько низко она опускается. Ниже его тела не уйдёт: поставьте поглубже, и она сядет на него."));
+                T("How many times a second she goes up and down on him. Go low for a slow ride.", "Сколько раз в секунду она поднимается и опускается на нём. Меньше — медленнее."));
+            Slider(st, T("How high she rises", "Как высоко она поднимается"), Plugin.RideBounce, 0f, 0.3f, "0", Cm, 100f,
+                T("How far she rises off him before coming back down.", "На сколько она приподнимается с него, прежде чем опуститься снова."));
+            Slider(st, T("How low she sits", "Как низко она садится"), Plugin.RideSquat, 0f, 1f, "0", Cm, 100f,
+                T("How low she goes. She never goes through him: set it deep and she sits right down on him.", "Насколько низко она опускается. Сквозь него не пройдёт: поставьте побольше, и она сядет на него до конца."));
             CardEnd();
 
-            if (FoldBegin(st, "ride.motion", T("Movement", "Движение"), T("smoothness, grind, rock, landing", "плавность, вперёд-назад, покачивание, посадка"), false))
+            if (FoldBegin(st, "ride.motion", T("Movement", "Движение"), T("sliding, hip tilt, landing", "скольжение, наклон таза, посадка"), false))
             {
-                SmoothRow(st);
-                Slider(st, T("Hips forward and back", "Бёдра вперёд-назад"), Plugin.RideGrind, 0f, 0.3f, "0", Cm, 100f,
-                    T("How far her hips slide forward and back in the moves that grind.", "На сколько бёдра скользят вперёд-назад в движениях с покачиванием."));
-                Slider(st, T("Pelvis rock", "Покачивание таза"), Plugin.RideTilt, 0f, 25f, "0.0", "°", 1f,
-                    T("How much the pelvis tips with every stroke.", "Насколько таз наклоняется на каждом такте."));
-                Slider(st, T("Give as she lands", "Мягкость посадки"), Plugin.RideSpring, 0f, 1f, "0", " %", 100f,
-                    T("At the bottom of every stroke she sinks a little further, like a soft body. It is a smooth sinking, not a bounce.", "В нижней точке она чуть проседает, как мягкое тело. Это плавное проседание, без отскока."));
-                Slider(st, T("Sink into him", "Проседание в него"), Plugin.RideSink, 0f, 0.15f, "0", Cm, 100f,
-                    T("How far her body may go into his where they touch. More lets her sit lower.", "На сколько её тело может уходить в его тело в месте касания. Больше — она сидит ниже."));
-                Slider(st, T("Seconds per move", "Секунд на движение"), Plugin.MoveSeconds, 2f, 20f, "0", Sec, 1f,
-                    T("In the Random and Scenario rhythms: how long she keeps one move before the next. 6 is normal.", "Для ритмов «Случайно» и «Сценарий»: сколько она держит одно движение до следующего. 6 — обычно."));
+                Slider(st, T("Slide forward and back", "Скольжение вперёд-назад"), Plugin.RideGrind, 0f, 0.3f, "0", Cm, 100f,
+                    T("How far her hips slide forward and back on him.", "На сколько она ёрзает бёдрами вперёд-назад на нём."));
+                Slider(st, T("Hip tilt", "Наклон таза"), Plugin.RideTilt, 0f, 25f, "0.0", "°", 1f,
+                    T("How much her pelvis tips with every stroke.", "Насколько таз наклоняется при каждом движении."));
+                Slider(st, T("Soft landing", "Мягкость посадки"), Plugin.RideSpring, 0f, 1f, "0", " %", 100f,
+                    T("At the bottom she sinks a little further, softly, with no bounce.", "Внизу она чуть глубже оседает на нём, мягко и без отскока."));
             }
             CardEnd();
 
-            if (FoldBegin(st, "ride.pose", T("Fine-tune the pose", "Тонкая настройка позы"), T("lean, feet", "наклон, ноги"), false))
+            // Leaning back is only for her hands on his thighs behind her; any other way she leans forward.
+            bool leansBack = !away && string.Equals(Plugin.RideHandsOn.Value, "HeroThighs", StringComparison.OrdinalIgnoreCase);
+            if (FoldBegin(st, "ride.pose", T("Fine-tune the pose", "Подстроить позу"), T("lean, feet", "наклон, ноги"), false))
             {
-                Slider(st, T("Lean forward", "Наклон вперёд"), Plugin.RideLean, 0f, 80f, "0", "°", 1f,
-                    T("How far she leans over him (hands on his chest or on her thighs).", "Насколько она наклоняется над ним (руки на его груди или на своих бёдрах)."));
-                Slider(st, T("Lean back", "Наклон назад"), Plugin.RideLeanBack, 0f, 40f, "0", "°", 1f,
-                    T("How far she leans back when her hands are on his thighs.", "Насколько она откидывается назад, когда руки на его бёдрах."));
+                if (leansBack)
+                {
+                    Slider(st, T("Lean back", "Наклон назад"), Plugin.RideLeanBack, 0f, 40f, "0", "°", 1f,
+                        T("How far she leans back to her hands on his thighs.", "Насколько она откидывается назад, опираясь на его бёдра."));
+                }
+                else
+                {
+                    Slider(st, T("Lean forward", "Наклон вперёд"), Plugin.RideLean, 0f, 80f, "0", "°", 1f,
+                        T("How far she leans forward. With her hands on him she leans as far as it takes to reach him, never less than this.",
+                          "Насколько она наклоняется вперёд. Если руки на нём, она наклонится столько, сколько нужно, чтобы дотянуться, но не меньше этого."));
+                }
                 Slider(st, T("Feet apart", "Ноги шире"), Plugin.RideStance, 0f, 0.6f, "0", Cm, 100f,
-                    T("How much wider each foot stands. They always stand outside his legs.", "На сколько шире стоит каждая нога. Они в любом случае стоят снаружи его ног."));
+                    T("How much wider she puts her feet. They always stand outside his legs.", "На сколько шире она ставит ноги. Они всегда стоят по бокам от его ног."));
             }
             CardEnd();
 
-            if (FoldBegin(st, "ride.hero", T("The hero", "Герой"), T("position, wetness", "положение, влага"), false))
+            if (FoldBegin(st, "ride.hero", T("Him", "Он"), T("where he lies, getting wet", "где лежит, намокание"), false))
             {
-                Slider(st, T("Move him along his body", "Сдвиг вдоль тела"), Plugin.RideHeroShift, -0.5f, 0.5f, "0", Cm, 100f,
-                    T("He is laid so that his crotch is under hers by itself. This moves him toward his head (+) or his feet (-).", "Он сам ложится так, чтобы промежности совпали. Это сдвигает его к голове (+) или к ногам (-)."));
-                Slider(st, T("Height above the floor", "Высота над полом"), Plugin.RideHeroClearance, -0.2f, 0.4f, "0", Cm, 100f,
-                    T("Raise it if he sinks into the floor, lower it if he floats.", "Поднимите, если он проваливается в пол; опустите, если висит над ним."));
-                Check(st, T("He gets wet from her", "Он намокает от неё"), Plugin.RideWet,
-                    T("While she rides him she gets wet, and he gets wet from her: the faster, the wetter she is. He dries slowly afterwards.", "Пока она на нём, она намокает, и он намокает от неё: тем быстрее, чем она мокрее. Потом он медленно высыхает."));
-                Slider(st, T("How wet", "Насколько мокрый"), Plugin.RideWetShine, 0f, 1f, "0", " %", 100f,
-                    T("How strong the wet look is at most.", "Насколько сильным бывает мокрый вид."));
+                Slider(st, T("Move him up or down", "Сдвинуть его выше или ниже"), Plugin.RideHeroShift, -0.5f, 0.5f, "0", Cm, 100f,
+                    T("He lies down under her by himself. If he is off, move him toward his head (+) or his feet (-).", "Он сам ложится точно под неё. Если сместился — подвиньте к голове (+) или к ногам (-)."));
+                Slider(st, T("Raise or lower him", "Поднять или опустить его"), Plugin.RideHeroClearance, -0.2f, 0.4f, "0", Cm, 100f,
+                    T("Raise him if he sinks into the floor, lower him if he floats above it.", "Поднимите, если он проваливается в пол; опустите, если висит над полом."));
+                Check(st, T("His penis gets wet inside her", "Член намокает в ней"), Plugin.RideWet,
+                    T("While he is in her he gets wet from her: the deeper and the wetter she is, the faster. Out of her he dries slowly.",
+                      "Пока он в ней, член намокает от неё: тем быстрее, чем глубже он входит и чем она влажнее. Снаружи он медленно высыхает."));
+                if (Plugin.RideWet.Value)
+                {
+                    Slider(st, T("How wet he looks", "Насколько мокрым выглядит"), Plugin.RideWetShine, 0f, 1f, "0", " %", 100f,
+                        T("How glossy he gets at most.", "Насколько сильно он блестит, когда совсем мокрый."));
+                }
             }
             CardEnd();
 
@@ -1434,6 +1443,30 @@ namespace CMAShake
                 ResetAll(Plugin.RideFrequency, Plugin.RideBounce, Plugin.RideGrind, Plugin.RideTilt, Plugin.RideSpring, Plugin.RideSquat, Plugin.RideSink, Plugin.RideHandsOn,
                     Plugin.RideLeanBack, Plugin.RideStance, Plugin.RideLean, Plugin.RideFacing, Plugin.RideHeroShift, Plugin.RideHeroClearance,
                     Plugin.RideWet, Plugin.RideWetShine));
+        }
+
+        // Where her hands go in the ride. With her back to him his chest is behind her, so it is not offered: her hands
+        // go on his thighs in front of her, or on her own.
+        private static void RideHandsRow(Styles st, bool away)
+        {
+            if (!away)
+            {
+                ChoiceRow(st, T("Hands", "Руки"), new[] { T("On his chest", "На его груди"), T("On his thighs", "На его бёдрах"), T("On her thighs", "На своих бёдрах") }, new[] { "Hero", "HeroThighs", "Thighs" }, Plugin.RideHandsOn, 120f,
+                    T("Where she puts her hands. On his chest she leans over him; on his thighs she leans back to them.", "Куда она кладёт руки. На его грудь — наклоняется к нему, на его бёдра — откидывается назад."));
+                return;
+            }
+            GUILayout.BeginHorizontal();
+            GUILayout.Label(T("Hands", "Руки"), st.label, GUILayout.Width(LabelWidth), GUILayout.Height(34f));
+            bool own = string.Equals(Plugin.RideHandsOn.Value, "Thighs", StringComparison.OrdinalIgnoreCase);
+            int cur = own ? 1 : 0;
+            int next = Choice(st, new[] { T("On his thighs", "На его бёдрах"), T("On her thighs", "На своих бёдрах") }, cur, 120f);
+            if (next != cur && next >= 0)
+            {
+                Plugin.RideHandsOn.Value = next == 1 ? "Thighs" : "HeroThighs";
+                MarkDirty();
+            }
+            GUILayout.EndHorizontal();
+            Tip(T("Where she puts her hands. His thighs are in front of her: she leans forward to them.", "Куда она кладёт руки. Его бёдра перед ней — она наклоняется к ним вперёд."));
         }
 
         // ---- Bikini ----
@@ -1867,7 +1900,7 @@ namespace CMAShake
             CardEnd();
 
             CardBegin(st, T("On the screen", "На экране"));
-            Check(st, T("Show the notice while she twerks or rides", "Показывать надпись во время тверка и райда"), Plugin.ShowNotice,
+            Check(st, T("Show a line at the top of the screen while she twerks or rides", "Показывать подсказку вверху экрана во время тверка и райда"), Plugin.ShowNotice,
                 T("The line at the top of the screen that says what is running and which key stops it.", "Строка вверху экрана: что сейчас идёт и какой клавишей остановить."));
             CardEnd();
 

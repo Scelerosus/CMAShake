@@ -10,14 +10,15 @@ namespace CMAShake
 {
     // The hero's penis gets wet from her while she rides him.
     //
-    // Where the wetness comes from: her. The game keeps how wet she is (ControlladorBrilloPorPlacer: the shine of her vagina
-    // and of her skin, her sweat, which it raises with her pleasure). While she rides she is asked, with the game's own
-    // switch (its "least wetness" value), to get wet, and what she really has is read back: he gets wet as fast as she is wet,
-    // and only while she sits on him. Off him, he dries slowly.
+    // Where the wetness comes from: inside her. The game keeps how wet her vagina is (ControlladorBrilloPorPlacer, which it
+    // raises with her pleasure). While she rides she is asked, with the game's own switch (its "least wetness" value), to
+    // get wet, and what she really has is read back. He gets wet only while he is in her, the more the deeper and the
+    // wetter she is; her sweat plays no part. Out of her, he dries slowly.
     //
-    // What it looks like: a film of fluid of the plugin's own, laid over the penis: a second renderer on the same mesh and
-    // bones with a transparent, glossy material whose droplets and runs are drawn here (no texture of the game's is used).
-    // Under the film the skin itself is made a little glossier, as a per-renderer override that is taken off again.
+    // What it looks like: a smooth, glossy coat of her fluid of the plugin's own, laid over the penis: a second renderer on
+    // the same mesh and bones with a transparent material drawn here (no texture of the game's is used). It is an even
+    // slick sheen with no drops or beads on it, which would read as sweat. Under it the skin itself is made a little
+    // glossier, as a per-renderer override that is taken off again.
     public sealed partial class ShakeController
     {
         private sealed class WetPart
@@ -343,7 +344,7 @@ namespace CMAShake
 
                 MakeFilmTextures();
                 film.SetTexture("_BaseColorMap", s_filmCover);
-                film.SetTextureScale("_BaseColorMap", new Vector2(2f, 2f));
+                film.SetTextureScale("_BaseColorMap", Vector2.one);
                 film.SetTextureOffset("_BaseColorMap", Vector2.zero);
                 film.SetTexture("_NormalMap", s_filmNormal ? s_filmNormalTex : null);
                 film.SetTexture("_MaskMap", s_filmMask ? s_filmMaskTex : null);
@@ -385,7 +386,7 @@ namespace CMAShake
             }
         }
 
-        // How the film looks at a wetness between 0 (nothing) and 1: thicker, glossier, and its drops stand out more.
+        // How the film looks at a wetness between 0 (nothing) and 1: a thicker and glossier coat.
         private static void FilmLook(float level)
         {
             Material m = s_filmMaterial;
@@ -399,11 +400,12 @@ namespace CMAShake
             SetIfHas(m, "_Smoothness", Mathf.Lerp(0.2f, 0.95f, level));
             SetIfHas(m, "_SmoothnessRemapMin", Mathf.Lerp(0.1f, 0.6f, level));
             SetIfHas(m, "_SmoothnessRemapMax", Mathf.Lerp(0.25f, 0.98f, level));
-            SetIfHas(m, "_NormalScale", Mathf.Lerp(0.3f, 1.2f, level));
+            SetIfHas(m, "_NormalScale", Mathf.Lerp(0.05f, 0.25f, level));
         }
 
-        // The film's textures, drawn here: round drops, beads and long runs of fluid over a thin even film. From one field of
-        // heights come the cover (how much fluid is where), the normal map (how it catches the light) and the gloss mask.
+        // The film's textures, drawn here: an even coat of fluid, a little thicker in some places than in others, with only
+        // broad, gentle ripples in it to catch the light. No drops or beads: on him they look like sweat, not like her.
+        // From one field of thickness come the cover (how much fluid is where), the normal map and the gloss mask.
         private static void MakeFilmTextures()
         {
             if (s_filmCover != null && s_filmNormalTex != null && s_filmMaskTex != null)
@@ -413,45 +415,35 @@ namespace CMAShake
             const int size = 256;
             var height = new float[size * size];
             var rnd = new System.Random(20261);
-            void Blob(float cx, float cy, float rx, float ry, float top)
+            // A few long, soft waves with whole periods across the texture, so it repeats without a seam.
+            const int waves = 7;
+            var fx = new int[waves];
+            var fy = new int[waves];
+            var amp = new float[waves];
+            var shift = new float[waves];
+            for (int k = 0; k < waves; k++)
             {
-                int x0 = Mathf.FloorToInt(cx - rx), x1 = Mathf.CeilToInt(cx + rx);
-                int y0 = Mathf.FloorToInt(cy - ry), y1 = Mathf.CeilToInt(cy + ry);
-                for (int y = y0; y <= y1; y++)
+                fx[k] = rnd.Next(-3, 4);
+                fy[k] = rnd.Next(1, 5);
+                amp[k] = 1f / (1f + Mathf.Sqrt(fx[k] * fx[k] + fy[k] * fy[k]));
+                shift[k] = (float)rnd.NextDouble() * Mathf.PI * 2f;
+            }
+            float lowest = float.MaxValue, highest = float.MinValue;
+            for (int y = 0; y < size; y++)
+            {
+                for (int x = 0; x < size; x++)
                 {
-                    for (int x = x0; x <= x1; x++)
+                    float h = 0f;
+                    for (int k = 0; k < waves; k++)
                     {
-                        float dx = (x - cx) / rx, dy = (y - cy) / ry;
-                        float d2 = dx * dx + dy * dy;
-                        if (d2 >= 1f)
-                        {
-                            continue;
-                        }
-                        int i = ((y % size + size) % size) * size + ((x % size + size) % size);
-                        float h = top * Mathf.Sqrt(1f - d2);
-                        if (h > height[i])
-                        {
-                            height[i] = h;
-                        }
+                        h += amp[k] * Mathf.Sin(2f * Mathf.PI * (fx[k] * x + fy[k] * y) / size + shift[k]);
                     }
+                    height[y * size + x] = h;
+                    lowest = Mathf.Min(lowest, h);
+                    highest = Mathf.Max(highest, h);
                 }
             }
-            float Next(float a, float b) => a + (float)rnd.NextDouble() * (b - a);
-            for (int i = 0; i < 55; i++)
-            {
-                float r = Next(3f, 9f);
-                Blob(Next(0f, size), Next(0f, size), r, r * Next(0.85f, 1.25f), r * 0.55f);
-            }
-            for (int i = 0; i < 26; i++)
-            {
-                float r = Next(2f, 4.5f);
-                Blob(Next(0f, size), Next(0f, size), r, r * Next(4f, 9f), r * 0.6f);
-            }
-            for (int i = 0; i < 170; i++)
-            {
-                float r = Next(1.2f, 2.6f);
-                Blob(Next(0f, size), Next(0f, size), r, r, r * 0.6f);
-            }
+            float span = Mathf.Max(1e-4f, highest - lowest);
 
             var cover = new Color32[size * size];
             var normal = new Color32[size * size];
@@ -463,13 +455,14 @@ namespace CMAShake
                     int i = y * size + x;
                     float hl = height[y * size + (x + size - 1) % size], hr = height[y * size + (x + 1) % size];
                     float hd = height[((y + size - 1) % size) * size + x], hu = height[((y + 1) % size) * size + x];
-                    var n = new Vector3(-(hr - hl) * 0.5f, -(hu - hd) * 0.5f, 1f).normalized;
-                    float drop = Mathf.Clamp01(height[i] / 1.6f);
+                    // Very gentle slopes: the coat is smooth, it only bends the highlights a little.
+                    var n = new Vector3(-(hr - hl) * 4f, -(hu - hd) * 4f, 1f).normalized;
+                    float thick = (height[i] - lowest) / span;
                     // Normal maps are read as x from red times alpha and y from green.
                     normal[i] = new Color32((byte)(Mathf.Clamp01(n.x * 0.5f + 0.5f) * 255f), (byte)(Mathf.Clamp01(n.y * 0.5f + 0.5f) * 255f), (byte)(Mathf.Clamp01(n.z * 0.5f + 0.5f) * 255f), 255);
-                    cover[i] = new Color32(255, 255, 255, (byte)(Mathf.Lerp(0.4f, 1f, drop) * 255f));
-                    // Mask: no metal, no occlusion, and the drops glossier than the film between them.
-                    mask[i] = new Color32(0, 255, 255, (byte)(Mathf.Lerp(0.6f, 1f, drop) * 255f));
+                    cover[i] = new Color32(255, 255, 255, (byte)(Mathf.Lerp(0.75f, 1f, thick) * 255f));
+                    // Mask: no metal, no occlusion, glossy all over and a touch more where the coat is thicker.
+                    mask[i] = new Color32(0, 255, 255, (byte)(Mathf.Lerp(0.85f, 1f, thick) * 255f));
                 }
             }
             s_filmCover = FilmTexture(size, cover, false);
@@ -588,8 +581,8 @@ namespace CMAShake
                     var config = m_herShine.config;
                     float maxVag = config != null && config.maxBrilloVag > 0.01f ? config.maxBrilloVag : 1f;
                     float maxSkin = config != null && config.maxBrilloCuerpo > 0.01f ? config.maxBrilloCuerpo : 1f;
-                    // Her vagina first; her sweat counts for half as much.
-                    m_herWet = Mathf.Max(Mathf.Clamp01(now.vag / maxVag), 0.5f * Mathf.Clamp01(now.main / maxSkin));
+                    // Only her vagina: that is what he is in. Her sweat does not make him wet.
+                    m_herWet = Mathf.Clamp01(now.vag / maxVag);
                     if (contact && m_herLogAt == 0f)
                     {
                         m_herLogAt = Time.unscaledTime + 15f;
@@ -773,7 +766,7 @@ namespace CMAShake
             m_wetApplied = -1f;
         }
 
-        // Runs every frame: she sits on him and he gets wet from her, as fast as she is wet; she is off and he dries.
+        // Runs every frame: while he is in her he gets wet, the faster the deeper he goes and the wetter she is; out of her he dries.
         private void UpdateWet(float dt)
         {
             try
@@ -783,7 +776,10 @@ namespace CMAShake
                     // Switched on in the middle of a ride: what to make wet is found now.
                     WetCapture(m_hero);
                 }
-                bool contact = Plugin.RideWet.Value && m_heroReady && m_ride && m_toggled && !m_switching && m_heroW > 0.95f;
+                // How deep he is in her this frame, as the ride worked it out (nothing if it did not run just now).
+                float inHer = Plugin.RideWet.Value && m_heroReady && m_ride && m_toggled && !m_switching && m_heroW > 0.95f
+                    && Time.frameCount - m_rideInFrame <= 1 ? m_rideIn : 0f;
+                bool contact = inHer > 0.01f;
                 HerWetStep(dt, contact);
                 if (!Plugin.RideWet.Value)
                 {
@@ -791,8 +787,8 @@ namespace CMAShake
                 }
                 else if (contact)
                 {
-                    // Riding him she is never quite dry: a fifth is the least that passes to him.
-                    m_wet = Mathf.Clamp01(m_wet + dt * Mathf.Max(m_herWet, 0.2f) / 6f);
+                    // Inside her he is never quite dry: a quarter is the least that she leaves on him.
+                    m_wet = Mathf.Clamp01(m_wet + dt * inHer * Mathf.Max(m_herWet, 0.25f) / 5f);
                 }
                 else
                 {
