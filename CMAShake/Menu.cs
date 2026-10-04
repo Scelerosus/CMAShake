@@ -710,9 +710,34 @@ namespace CMAShake
             float sh = Screen.height / scale;
             bool collapsed = Plugin.WindowCollapsed.Value;
             float maxH = Mathf.Max(MinHeight, sh - 20f);
-            float h = collapsed ? 128f : s_height > 1f ? Mathf.Clamp(s_height, MinHeight, maxH) : Mathf.Min(sh - 40f, 920f);
             s_pos.x = Mathf.Clamp(s_pos.x, 0f, Mathf.Max(0f, sw - 140f));
             s_pos.y = Mathf.Clamp(s_pos.y, 0f, Mathf.Max(0f, sh - 90f));
+            // Never taller than the room below the window, so its bottom line and the corner that resizes it stay on screen.
+            maxH = Mathf.Clamp(sh - 10f - s_pos.y, MinHeight, maxH);
+            float h = collapsed ? 128f : s_height > 1f ? Mathf.Clamp(s_height, MinHeight, maxH) : Mathf.Min(sh - 40f, 920f, maxH);
+            if (!collapsed && s_pos.y + h > sh - 10f)
+            {
+                // Not even the shortest window fits below: lift it.
+                s_pos.y = Mathf.Max(0f, sh - 10f - h);
+            }
+
+            // A key is being chosen for a hotkey: the next key pressed is it. Esc leaves it as it was, Backspace sets none.
+            if (s_capture != null && ev != null && ev.type == EventType.KeyDown && ev.keyCode != KeyCode.None)
+            {
+                if (ev.keyCode == KeyCode.Backspace || ev.keyCode == KeyCode.Delete)
+                {
+                    s_capture.Value = KeyCode.None;
+                    MarkDirty();
+                }
+                else if (ev.keyCode != KeyCode.Escape)
+                {
+                    s_capture.Value = ev.keyCode;
+                    MarkDirty();
+                }
+                s_capture = null;
+                ev.Use();
+                SaveIfDirty();
+            }
 
             // Esc: first lets go of a text box, then closes the window. (While a hotkey waits for its key, Esc cancels that above.)
             if (s_capture == null && ev != null && ev.type == EventType.KeyDown && ev.keyCode == KeyCode.Escape)
@@ -793,6 +818,8 @@ namespace CMAShake
             if (GUILayout.Button(collapsed ? "+" : "–", st.close, GUILayout.Width(32f), GUILayout.Height(32f)))
             {
                 Plugin.WindowCollapsed.Value = !collapsed;
+                s_capture = null;
+                s_resize = false;
                 MarkDirty();
                 SaveIfDirty();
             }

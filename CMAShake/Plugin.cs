@@ -16,7 +16,7 @@ namespace CMAShake
     {
         public const string PluginGuid = "community.cma.shake";
         public const string PluginName = "CMA Shake";
-        public const string PluginVersion = "0.15.0";
+        public const string PluginVersion = "0.15.1";
 
         internal static ManualLogSource ModLog;
         internal static ConfigFile Cfg;
