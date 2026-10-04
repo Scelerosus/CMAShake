@@ -17,8 +17,11 @@ namespace CMAShake
     //
     // What it looks like: a smooth, glossy coat of her fluid of the plugin's own, laid over the penis: a second renderer on
     // the same mesh and bones with a transparent material drawn here (no texture of the game's is used). It is an even
-    // slick sheen with no drops or beads on it, which would read as sweat. Under it the skin itself is made a little
-    // glossier, as a per-renderer override that is taken off again.
+    // slick sheen with no drops or beads on it, which would read as sweat. It covers him only as far as he has been in
+    // her, from the tip down: for that, every texel of the coat's texture is told once where on the shaft it lies (the
+    // mesh is laid out flat in its UVs), and the coat is drawn only on the part that went in. Where that cannot be worked
+    // out (a mesh the game keeps unreadable) the coat covers him whole, and the skin under it is made a little glossier,
+    // as a per-renderer override that is taken off again.
     public sealed partial class ShakeController
     {
         private sealed class WetPart
@@ -41,6 +44,18 @@ namespace CMAShake
             public GameObject go;
             public int shapes;
             public float[] last;
+            // Its own material and coat texture, and for each texel of it where on the shaft it is: 0 at the base, 1 at
+            // the tip, below 0 where the mesh has nothing. Null when that could not be worked out: then the coat is whole.
+            public Material material;
+            public Texture2D cover;
+            public float[] along;
+            public Color32[] pixels;
+            public float drawnReach = -1f;
+            // How its material is drawn: highlights kept apart from the alpha, and then a gloss mask of its own that
+            // keeps the dry part from shining.
+            public bool preserve;
+            public Texture2D gloss;
+            public Color32[] glossPixels;
         }
 
         // Smoothness (glossiness) properties of the shaders the game is likely to use, with how glossy a wet surface is on each.
@@ -53,6 +68,14 @@ namespace CMAShake
         private readonly List<WetPart> m_wetParts = new List<WetPart>();
         private readonly List<WetFilm> m_wetFilms = new List<WetFilm>();
         private float m_wet;
+        // How far down from the tip he has been in her (0..1 of his length): the coat reaches that far.
+        private float m_wetReach;
+        private float m_wetReachAt;
+        // His length, from the mesh, to tell how deep in her he is from how far her crotch is from his body.
+        private float m_penisLength = DefaultPenisLength;
+        private const float DefaultPenisLength = 0.16f;
+        private const int FilmSize = 256;
+        private static float[] s_filmThick;
         private float m_wetApplied = -1f;
         private bool m_wetCaptured;
         private MaterialPropertyBlock m_wetBlock;
@@ -60,6 +83,11 @@ namespace CMAShake
         // The film's material and its drawn textures are made once and kept.
         private static Material s_filmMaterial;
         private static bool s_filmNormal, s_filmMask, s_filmPreserve, s_filmFailed;
+        // The best of the kinds whose highlights fade with the alpha: a coat on only a part of him needs one, or its shine
+        // would show where he is dry. Made from it when first needed.
+        private static Material s_plainLike, s_plainMaterial;
+        private static string s_plainWords = "";
+        private static bool s_plainNormal, s_plainMask;
         private static Texture2D s_filmCover, s_filmNormalTex, s_filmMaskTex;
 
         // Her side: the game's own record of how wet she is, and the request to her to get wet.
@@ -256,9 +284,56 @@ namespace CMAShake
                 {
                     mats[i] = material;
                 }
+                var wf = new WetFilm { source = source, film = film, go = go, shapes = source.sharedMesh.blendShapeCount };
+                // Its own coat that covers only what went into her, if where each part of him is can be worked out.
+                wf.preserve = s_filmPreserve;
+                wf.along = AlongShaft(source, out float length);
+                if (wf.along != null)
+                {
+                    // A coat on part of him must not shine where it is not: a kind whose highlights fade with the alpha,
+                    // or, failing that, the same kind with a gloss mask of its own; with neither, he is coated whole.
+                    Material from = s_filmPreserve ? PlainFilmMaterial() : material;
+                    bool glossMask = false;
+                    if (from == null && s_filmMask)
+                    {
+                        from = material;
+                        glossMask = true;
+                    }
+                    if (from == null)
+                    {
+                        Plugin.ModLog.LogInfo("Ride: wet film: no material kind loaded can keep its shine to part of him, so the coat covers him whole.");
+                        wf.along = null;
+                    }
+                    else
+                    {
+                        wf.preserve = from == material && s_filmPreserve;
+                        wf.material = new Material(from) { name = "CMAShake wet film (" + r.name + ")", hideFlags = HideFlags.HideAndDontSave };
+                        wf.pixels = new Color32[FilmSize * FilmSize];
+                        wf.cover = NewFilmTexture(false);
+                        if (glossMask)
+                        {
+                            wf.glossPixels = new Color32[FilmSize * FilmSize];
+                            wf.gloss = NewFilmTexture(true);
+                            SetIfHas(wf.material, "_AORemapMin", 0f);
+                            SetIfHas(wf.material, "_AORemapMax", 1f);
+                        }
+                        DrawReach(wf, 0f);
+                        wf.material.SetTexture("_BaseColorMap", wf.cover);
+                        if (wf.gloss != null)
+                        {
+                            wf.material.SetTexture("_MaskMap", wf.gloss);
+                        }
+                        for (int i = 0; i < parts; i++)
+                        {
+                            mats[i] = wf.material;
+                        }
+                        m_penisLength = length;
+                    }
+                }
                 film.sharedMaterials = mats;
-                m_wetFilms.Add(new WetFilm { source = source, film = film, go = go, shapes = source.sharedMesh.blendShapeCount });
-                Plugin.ModLog.LogInfo($"Ride: wet film: laid over '{r.name}' ({parts} part(s), {source.sharedMesh.blendShapeCount} blend shape(s), {source.bones.Length} bone(s)).");
+                m_wetFilms.Add(wf);
+                Plugin.ModLog.LogInfo($"Ride: wet film: laid over '{r.name}' ({parts} part(s), {source.sharedMesh.blendShapeCount} blend shape(s), {source.bones.Length} bone(s)); "
+                    + (wf.along != null ? $"it covers only what went into her ({length * 100f:F0} cm long)." : "it covers him whole."));
             }
             catch (Exception ex)
             {
@@ -286,6 +361,8 @@ namespace CMAShake
                 Material like = null;
                 int bestScore = int.MinValue;
                 string bestWords = "";
+                int bestPlainScore = int.MinValue;
+                s_plainLike = null;
                 int surface = Shader.PropertyToID("_SurfaceType");
                 int blend = Shader.PropertyToID("_BlendMode");
                 int distortion = Shader.PropertyToID("_DistortionEnable");
@@ -325,6 +402,12 @@ namespace CMAShake
                         like = m;
                         bestWords = words;
                     }
+                    if (!words.Contains("_BLENDMODE_PRESERVE_SPECULAR_LIGHTING") && score > bestPlainScore)
+                    {
+                        bestPlainScore = score;
+                        s_plainLike = m;
+                        s_plainWords = words;
+                    }
                 }
                 if (like == null)
                 {
@@ -333,41 +416,14 @@ namespace CMAShake
                     return null;
                 }
 
-                Material film = new Material(like);
-                film.renderQueue = 3000;
                 s_filmNormal = bestWords.Contains("_NORMALMAP");
                 s_filmMask = bestWords.Contains("_MASKMAP");
                 s_filmPreserve = bestWords.Contains("_BLENDMODE_PRESERVE_SPECULAR_LIGHTING");
                 Plugin.ModLog.LogInfo($"Ride: wet film: own material, drawn the way '{like.name}' is (score {bestScore}, of {seen} transparent; {bestWords}).");
-                film.name = "CMAShake wet film";
-                film.hideFlags = HideFlags.HideAndDontSave;
-
                 MakeFilmTextures();
-                film.SetTexture("_BaseColorMap", s_filmCover);
-                film.SetTextureScale("_BaseColorMap", Vector2.one);
-                film.SetTextureOffset("_BaseColorMap", Vector2.zero);
-                film.SetTexture("_NormalMap", s_filmNormal ? s_filmNormalTex : null);
-                film.SetTexture("_MaskMap", s_filmMask ? s_filmMaskTex : null);
-                SetIfHas(film, "_Metallic", 0f);
-                SetIfHas(film, "_AlphaCutoff", 0f);
-                SetIfHas(film, "_ZWrite", 0f);
-                SetIfHas(film, "_TransparentZWrite", 0f);
-                SetIfHas(film, "_ZTestTransparent", 4f);
-                SetIfHas(film, "_UVBase", 0f);
-                SetIfHas(film, "_DetailAlbedoScale", 0f);
-                SetIfHas(film, "_DetailNormalScale", 0f);
-                SetIfHas(film, "_DetailSmoothnessScale", 0f);
-                SetIfHas(film, "_AORemapMin", 1f);
-                SetIfHas(film, "_AORemapMax", 1f);
-                SetIfHas(film, "_CoatMask", 0f);
-                SetIfHas(film, "_Anisotropy", 0f);
-                SetIfHas(film, "_IridescenceMask", 0f);
-                if (film.HasProperty("_EmissiveColor"))
-                {
-                    film.SetColor("_EmissiveColor", Color.black);
-                }
+                Material film = SetUpFilm(like, "CMAShake wet film", s_filmNormal, s_filmMask);
                 s_filmMaterial = film;
-                FilmLook(0f);
+                FilmLook(film, 0f, s_filmPreserve, false);
                 return film;
             }
             catch (Exception ex)
@@ -378,6 +434,68 @@ namespace CMAShake
             }
         }
 
+        // A film material made from a transparent material of the game's, with the plugin's own textures and settings.
+        private static Material SetUpFilm(Material like, string name, bool normal, bool mask)
+        {
+            Material film = new Material(like);
+            film.renderQueue = 3000;
+            film.name = name;
+            film.hideFlags = HideFlags.HideAndDontSave;
+            film.SetTexture("_BaseColorMap", s_filmCover);
+            film.SetTextureScale("_BaseColorMap", Vector2.one);
+            film.SetTextureOffset("_BaseColorMap", Vector2.zero);
+            film.SetTexture("_NormalMap", normal ? s_filmNormalTex : null);
+            film.SetTexture("_MaskMap", mask ? s_filmMaskTex : null);
+            SetIfHas(film, "_Metallic", 0f);
+            SetIfHas(film, "_AlphaCutoff", 0f);
+            SetIfHas(film, "_ZWrite", 0f);
+            SetIfHas(film, "_TransparentZWrite", 0f);
+            SetIfHas(film, "_ZTestTransparent", 4f);
+            SetIfHas(film, "_UVBase", 0f);
+            SetIfHas(film, "_DetailAlbedoScale", 0f);
+            SetIfHas(film, "_DetailNormalScale", 0f);
+            SetIfHas(film, "_DetailSmoothnessScale", 0f);
+            SetIfHas(film, "_AORemapMin", 1f);
+            SetIfHas(film, "_AORemapMax", 1f);
+            SetIfHas(film, "_CoatMask", 0f);
+            SetIfHas(film, "_Anisotropy", 0f);
+            SetIfHas(film, "_IridescenceMask", 0f);
+            if (film.HasProperty("_EmissiveColor"))
+            {
+                film.SetColor("_EmissiveColor", Color.black);
+            }
+            return film;
+        }
+
+        // The film material whose highlights fade with its alpha, made the first time a coat on part of him needs it.
+        // Null when no such kind is loaded.
+        private static Material PlainFilmMaterial()
+        {
+            if (s_plainMaterial != null)
+            {
+                return s_plainMaterial;
+            }
+            if (s_plainLike == null || s_filmMaterial == null)
+            {
+                return null;
+            }
+            try
+            {
+                s_plainNormal = s_plainWords.Contains("_NORMALMAP");
+                s_plainMask = s_plainWords.Contains("_MASKMAP");
+                s_plainMaterial = SetUpFilm(s_plainLike, "CMAShake wet film (plain)", s_plainNormal, s_plainMask);
+                FilmLook(s_plainMaterial, 0f, false, true);
+                Plugin.ModLog.LogInfo($"Ride: wet film: for a coat on part of him, drawn the way '{s_plainLike.name}' is ({s_plainWords}).");
+            }
+            catch (Exception ex)
+            {
+                s_plainLike = null;
+                s_plainMaterial = null;
+                Plugin.ModLog.LogWarning("Wet film: the plain material could not be made: " + ex.Message);
+            }
+            return s_plainMaterial;
+        }
+
         private static void SetIfHas(Material m, string name, float value)
         {
             if (m.HasProperty(name))
@@ -386,19 +504,19 @@ namespace CMAShake
             }
         }
 
-        // How the film looks at a wetness between 0 (nothing) and 1: a thicker and glossier coat.
-        private static void FilmLook(float level)
+        // How the film looks at a wetness between 0 (nothing) and 1: a thicker and glossier coat. A coat on part of him
+        // takes its least gloss as none, so that where its gloss mask says dry there is no shine.
+        private static void FilmLook(Material m, float level, bool preserve, bool partial)
         {
-            Material m = s_filmMaterial;
             if (m == null)
             {
                 return;
             }
             // Fluid has almost no colour of its own: it darkens the skin a little and shines. (A light colour here would lie
             // on the skin like lotion.) Where the highlights are not kept apart from the alpha, more of it is needed to show.
-            m.SetColor("_BaseColor", new Color(0.03f, 0.03f, 0.035f, Mathf.Lerp(0f, s_filmPreserve ? 0.16f : 0.35f, level)));
+            m.SetColor("_BaseColor", new Color(0.03f, 0.03f, 0.035f, Mathf.Lerp(0f, preserve ? 0.16f : 0.35f, level)));
             SetIfHas(m, "_Smoothness", Mathf.Lerp(0.2f, 0.95f, level));
-            SetIfHas(m, "_SmoothnessRemapMin", Mathf.Lerp(0.1f, 0.6f, level));
+            SetIfHas(m, "_SmoothnessRemapMin", partial ? 0f : Mathf.Lerp(0.1f, 0.6f, level));
             SetIfHas(m, "_SmoothnessRemapMax", Mathf.Lerp(0.25f, 0.98f, level));
             SetIfHas(m, "_NormalScale", Mathf.Lerp(0.05f, 0.25f, level));
         }
@@ -412,7 +530,7 @@ namespace CMAShake
             {
                 return;
             }
-            const int size = 256;
+            const int size = FilmSize;
             var height = new float[size * size];
             var rnd = new System.Random(20261);
             // A few long, soft waves with whole periods across the texture, so it repeats without a seam.
@@ -444,6 +562,7 @@ namespace CMAShake
                 }
             }
             float span = Mathf.Max(1e-4f, highest - lowest);
+            s_filmThick = new float[size * size];
 
             var cover = new Color32[size * size];
             var normal = new Color32[size * size];
@@ -458,6 +577,7 @@ namespace CMAShake
                     // Very gentle slopes: the coat is smooth, it only bends the highlights a little.
                     var n = new Vector3(-(hr - hl) * 4f, -(hu - hd) * 4f, 1f).normalized;
                     float thick = (height[i] - lowest) / span;
+                    s_filmThick[i] = thick;
                     // Normal maps are read as x from red times alpha and y from green.
                     normal[i] = new Color32((byte)(Mathf.Clamp01(n.x * 0.5f + 0.5f) * 255f), (byte)(Mathf.Clamp01(n.y * 0.5f + 0.5f) * 255f), (byte)(Mathf.Clamp01(n.z * 0.5f + 0.5f) * 255f), 255);
                     cover[i] = new Color32(255, 255, 255, (byte)(Mathf.Lerp(0.75f, 1f, thick) * 255f));
@@ -468,6 +588,256 @@ namespace CMAShake
             s_filmCover = FilmTexture(size, cover, false);
             s_filmNormalTex = FilmTexture(size, normal, true);
             s_filmMaskTex = FilmTexture(size, mask, true);
+        }
+
+        // Where on the shaft each texel of the coat's texture lies, 0 at the base and 1 at the tip (below 0: no part of him
+        // there). Worked out once from the mesh at rest: its long axis is the shaft, the end nearer to the bone that all of
+        // its bones hang from is the base, and every triangle is drawn into the texture at its UVs with that value.
+        // Null if the mesh cannot be read or does not look like one long shape.
+        private static float[] AlongShaft(SkinnedMeshRenderer source, out float length)
+        {
+            length = DefaultPenisLength;
+            try
+            {
+                Mesh mesh = source.sharedMesh;
+                if (mesh == null || !mesh.isReadable)
+                {
+                    Plugin.ModLog.LogInfo("Ride: wet film: the mesh cannot be read, so the coat covers him whole.");
+                    return null;
+                }
+                var vs = mesh.vertices;
+                var uvs = mesh.uv;
+                var tris = mesh.triangles;
+                int n = vs.Length;
+                if (n < 8 || uvs == null || uvs.Length != n || tris == null || tris.Length < 3)
+                {
+                    Plugin.ModLog.LogInfo("Ride: wet film: the mesh has no UVs to lay the coat out by, so it covers him whole.");
+                    return null;
+                }
+                var v = new Vector3[n];
+                var uv = new Vector2[n];
+                Vector3 mean = Vector3.zero;
+                for (int i = 0; i < n; i++)
+                {
+                    v[i] = vs[i];
+                    uv[i] = uvs[i];
+                    mean += v[i];
+                }
+                mean /= n;
+
+                // The long axis: the main direction of the spread of the points (a few rounds of the power method).
+                float xx = 0f, xy = 0f, xz = 0f, yy = 0f, yz = 0f, zz = 0f;
+                for (int i = 0; i < n; i++)
+                {
+                    Vector3 d = v[i] - mean;
+                    xx += d.x * d.x; xy += d.x * d.y; xz += d.x * d.z;
+                    yy += d.y * d.y; yz += d.y * d.z; zz += d.z * d.z;
+                }
+                Vector3 axis = new Vector3(1f, 0.7f, 0.4f).normalized;
+                for (int k = 0; k < 24; k++)
+                {
+                    axis = new Vector3(xx * axis.x + xy * axis.y + xz * axis.z, xy * axis.x + yy * axis.y + yz * axis.z, xz * axis.x + yz * axis.y + zz * axis.z);
+                    if (axis.sqrMagnitude < 1e-20f)
+                    {
+                        return null;
+                    }
+                    axis.Normalize();
+                }
+                float lo = float.MaxValue, hi = float.MinValue;
+                var p = new float[n];
+                for (int i = 0; i < n; i++)
+                {
+                    p[i] = Vector3.Dot(v[i] - mean, axis);
+                    lo = Mathf.Min(lo, p[i]);
+                    hi = Mathf.Max(hi, p[i]);
+                }
+                if (hi - lo < 1e-5f)
+                {
+                    return null;
+                }
+
+                // Which end is the base: the one nearer the bone the others hang from.
+                var bones = source.bones;
+                var binds = mesh.bindposes;
+                int baseBone = -1, baseDepth = int.MaxValue;
+                if (bones != null && binds != null)
+                {
+                    for (int b = 0; b < bones.Length && b < binds.Length; b++)
+                    {
+                        if (bones[b] == null)
+                        {
+                            continue;
+                        }
+                        int depth = 0;
+                        for (Transform t = bones[b].parent; t != null; t = t.parent)
+                        {
+                            depth++;
+                        }
+                        if (depth < baseDepth)
+                        {
+                            baseDepth = depth;
+                            baseBone = b;
+                        }
+                    }
+                }
+                if (baseBone < 0)
+                {
+                    Plugin.ModLog.LogInfo("Ride: wet film: no bones to tell the base from the tip, so the coat covers him whole.");
+                    return null;
+                }
+                Vector3 basePoint = binds[baseBone].inverse.MultiplyPoint3x4(Vector3.zero);
+                float pb = Vector3.Dot(basePoint - mean, axis);
+                bool baseLow = Mathf.Abs(pb - lo) <= Mathf.Abs(pb - hi);
+                float span = hi - lo;
+                var a = new float[n];
+                for (int i = 0; i < n; i++)
+                {
+                    a[i] = baseLow ? (p[i] - lo) / span : (hi - p[i]) / span;
+                }
+                Vector3 scale = source.transform.lossyScale;
+                float measured = span * Mathf.Max(Mathf.Abs(scale.x), Mathf.Abs(scale.y), Mathf.Abs(scale.z));
+                length = measured >= 0.06f && measured <= 0.35f ? measured : DefaultPenisLength;
+
+                // Every triangle drawn into the texture at its UVs, with the place on the shaft spread over it.
+                const int size = FilmSize;
+                var map = new float[size * size];
+                for (int i = 0; i < map.Length; i++)
+                {
+                    map[i] = -1f;
+                }
+                int filled = 0;
+                for (int t = 0; t + 2 < tris.Length; t += 3)
+                {
+                    int i0 = tris[t], i1 = tris[t + 1], i2 = tris[t + 2];
+                    if (i0 >= n || i1 >= n || i2 >= n)
+                    {
+                        continue;
+                    }
+                    Vector2 q0 = uv[i0] * size, q1 = uv[i1] * size, q2 = uv[i2] * size;
+                    float area = (q1.x - q0.x) * (q2.y - q0.y) - (q2.x - q0.x) * (q1.y - q0.y);
+                    if (Mathf.Abs(area) < 1e-8f)
+                    {
+                        continue;
+                    }
+                    int x0 = Mathf.FloorToInt(Mathf.Min(q0.x, Mathf.Min(q1.x, q2.x)));
+                    int x1 = Mathf.CeilToInt(Mathf.Max(q0.x, Mathf.Max(q1.x, q2.x)));
+                    int y0 = Mathf.FloorToInt(Mathf.Min(q0.y, Mathf.Min(q1.y, q2.y)));
+                    int y1 = Mathf.CeilToInt(Mathf.Max(q0.y, Mathf.Max(q1.y, q2.y)));
+                    if (x1 - x0 > size || y1 - y0 > size)
+                    {
+                        continue;
+                    }
+                    for (int y = y0; y <= y1; y++)
+                    {
+                        for (int x = x0; x <= x1; x++)
+                        {
+                            float px = x + 0.5f, py = y + 0.5f;
+                            float w1 = ((px - q0.x) * (q2.y - q0.y) - (q2.x - q0.x) * (py - q0.y)) / area;
+                            float w2 = ((q1.x - q0.x) * (py - q0.y) - (px - q0.x) * (q1.y - q0.y)) / area;
+                            float w0 = 1f - w1 - w2;
+                            if (w0 < -0.01f || w1 < -0.01f || w2 < -0.01f)
+                            {
+                                continue;
+                            }
+                            int idx = ((y % size + size) % size) * size + ((x % size + size) % size);
+                            if (map[idx] < 0f)
+                            {
+                                filled++;
+                            }
+                            map[idx] = w0 * a[i0] + w1 * a[i1] + w2 * a[i2];
+                        }
+                    }
+                }
+                if (filled < 64)
+                {
+                    Plugin.ModLog.LogInfo("Ride: wet film: the UVs of the mesh cover almost nothing, so the coat covers him whole.");
+                    return null;
+                }
+                // Grown a few texels past the edges of the layout, so no dry seam shows where the texture is filtered.
+                for (int pass = 0; pass < 4; pass++)
+                {
+                    var grown = (float[])map.Clone();
+                    for (int y = 0; y < size; y++)
+                    {
+                        for (int x = 0; x < size; x++)
+                        {
+                            int idx = y * size + x;
+                            if (map[idx] >= 0f)
+                            {
+                                continue;
+                            }
+                            float sum = 0f;
+                            int cnt = 0;
+                            for (int k = 0; k < 4; k++)
+                            {
+                                int nx = (x + (k == 0 ? 1 : k == 1 ? size - 1 : 0)) % size;
+                                int ny = (y + (k == 2 ? 1 : k == 3 ? size - 1 : 0)) % size;
+                                float m = map[ny * size + nx];
+                                if (m >= 0f)
+                                {
+                                    sum += m;
+                                    cnt++;
+                                }
+                            }
+                            if (cnt > 0)
+                            {
+                                grown[idx] = sum / cnt;
+                            }
+                        }
+                    }
+                    map = grown;
+                }
+                return map;
+            }
+            catch (Exception ex)
+            {
+                Plugin.ModLog.LogInfo("Ride: wet film: where the coat goes could not be worked out (" + ex.Message + "), so it covers him whole.");
+                return null;
+            }
+        }
+
+        private static Texture2D NewFilmTexture(bool linear)
+        {
+            return new Texture2D(FilmSize, FilmSize, TextureFormat.RGBA32, true, linear)
+            {
+                filterMode = FilterMode.Trilinear,
+                wrapMode = TextureWrapMode.Repeat,
+                anisoLevel = 4,
+                hideFlags = HideFlags.HideAndDontSave
+            };
+        }
+
+        // Draws the coat of one film down from the tip as far as he went in, with a soft edge.
+        private static void DrawReach(WetFilm f, float reach)
+        {
+            if (f.along == null || f.cover == null)
+            {
+                return;
+            }
+            float[] thick = s_filmThick;
+            float edge = 1f - reach;
+            const float soft = 0.06f;
+            for (int i = 0; i < f.pixels.Length; i++)
+            {
+                float a = f.along[i];
+                float cover = reach <= 0.001f || a < 0f ? 0f : Mathf.SmoothStep(0f, 1f, Mathf.Clamp01((a - edge + soft) / (2f * soft)));
+                float base01 = thick != null ? Mathf.Lerp(0.75f, 1f, thick[i]) : 1f;
+                f.pixels[i] = new Color32(255, 255, 255, (byte)(base01 * cover * 255f));
+                if (f.glossPixels != null)
+                {
+                    // No metal; occlusion and gloss only where the coat is, so the dry part does not shine.
+                    byte g = (byte)(cover * 255f);
+                    f.glossPixels[i] = new Color32(0, g, 255, (byte)(cover * Mathf.Lerp(0.85f, 1f, thick != null ? thick[i] : 1f) * 255f));
+                }
+            }
+            f.cover.SetPixels32(f.pixels);
+            f.cover.Apply(true, false);
+            if (f.gloss != null)
+            {
+                f.gloss.SetPixels32(f.glossPixels);
+                f.gloss.Apply(true, false);
+            }
+            f.drawnReach = reach;
         }
 
         private static Texture2D FilmTexture(int size, Color32[] pixels, bool linear)
@@ -628,6 +998,9 @@ namespace CMAShake
             {
                 m_wetBlock = new MaterialPropertyBlock();
             }
+            // With a coat that covers only what went in, the skin under it is left as it is: made glossier, it would shine
+            // where he is still dry.
+            float skin = AnyReachFilm() ? 0f : level;
             foreach (WetPart p in m_wetParts)
             {
                 if (p.renderer == null)
@@ -638,18 +1011,54 @@ namespace CMAShake
                 for (int i = 0; i < p.floatIds.Count; i++)
                 {
                     float orig = p.floatOrig[i];
-                    m_wetBlock.SetFloat(p.floatIds[i], Mathf.Lerp(orig, Mathf.Max(orig, p.floatTarget[i]), level));
+                    m_wetBlock.SetFloat(p.floatIds[i], Mathf.Lerp(orig, Mathf.Max(orig, p.floatTarget[i]), skin));
                 }
                 if (p.colorId >= 0)
                 {
                     // A wet surface is a little darker.
                     Color c = p.colorOrig;
-                    float f = Mathf.Lerp(1f, 0.92f, level);
+                    float f = Mathf.Lerp(1f, 0.92f, skin);
                     m_wetBlock.SetColor(p.colorId, new Color(c.r * f, c.g * f, c.b * f, c.a));
                 }
                 p.renderer.SetPropertyBlock(m_wetBlock, p.slot);
             }
-            FilmLook(level);
+            FilmLook(s_filmMaterial, level, s_filmPreserve, false);
+            foreach (WetFilm f in m_wetFilms)
+            {
+                if (f.material != null)
+                {
+                    FilmLook(f.material, level, f.preserve, f.along != null);
+                }
+            }
+        }
+
+        private bool AnyReachFilm()
+        {
+            foreach (WetFilm f in m_wetFilms)
+            {
+                if (f.along != null)
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        // The coats are drawn again when how far down he is wet has changed, a few times a second at most.
+        private void DrawReaches()
+        {
+            if (Time.unscaledTime < m_wetReachAt)
+            {
+                return;
+            }
+            foreach (WetFilm f in m_wetFilms)
+            {
+                if (f.along != null && Mathf.Abs(f.drawnReach - m_wetReach) > 0.015f)
+                {
+                    DrawReach(f, m_wetReach);
+                    m_wetReachAt = Time.unscaledTime + 0.1f;
+                }
+            }
         }
 
         // The film is seen when there is something to see and the penis itself is: it follows its shape every frame.
@@ -755,6 +1164,18 @@ namespace CMAShake
                     {
                         UnityEngine.Object.Destroy(f.go);
                     }
+                    if (f.material != null)
+                    {
+                        UnityEngine.Object.Destroy(f.material);
+                    }
+                    if (f.cover != null)
+                    {
+                        UnityEngine.Object.Destroy(f.cover);
+                    }
+                    if (f.gloss != null)
+                    {
+                        UnityEngine.Object.Destroy(f.gloss);
+                    }
                 }
             }
             catch (Exception ex)
@@ -764,6 +1185,7 @@ namespace CMAShake
             m_wetParts.Clear();
             m_wetFilms.Clear();
             m_wetApplied = -1f;
+            m_penisLength = DefaultPenisLength;
         }
 
         // Runs every frame: while he is in her he gets wet, the faster the deeper he goes and the wetter she is; out of her he dries.
@@ -787,12 +1209,18 @@ namespace CMAShake
                 }
                 else if (contact)
                 {
-                    // Inside her he is never quite dry: a quarter is the least that she leaves on him.
-                    m_wet = Mathf.Clamp01(m_wet + dt * inHer * Mathf.Max(m_herWet, 0.25f) / 5f);
+                    // Inside her he is never quite dry: a quarter is the least that she leaves on him. He is wet as far down
+                    // as he has gone into her.
+                    m_wet = Mathf.Clamp01(m_wet + dt * Mathf.Max(inHer, 0.3f) * Mathf.Max(m_herWet, 0.25f) / 5f);
+                    m_wetReach = Mathf.Max(m_wetReach, inHer);
                 }
                 else
                 {
                     m_wet = Mathf.Clamp01(m_wet - dt / 45f);
+                }
+                if (m_wet <= 0.001f)
+                {
+                    m_wetReach = 0f;
                 }
                 if (m_wetParts.Count == 0 && m_wetFilms.Count == 0)
                 {
@@ -809,6 +1237,7 @@ namespace CMAShake
                     WetRestore();
                     return;
                 }
+                DrawReaches();
                 float level = Mathf.SmoothStep(0f, 1f, m_wet) * Plugin.RideWetShine.Value;
                 if (Mathf.Abs(level - m_wetApplied) > 0.004f)
                 {

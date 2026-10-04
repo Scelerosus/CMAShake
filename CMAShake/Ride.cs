@@ -1260,17 +1260,15 @@ namespace CMAShake
             // where she sits, and the stroke rides on top of it untouched.
             Vector3 seat = new Vector3(squat.x, -squatDepth, squat.z) + pin;
             float lift = Instance.HeroPushFor(w, seat, right, fwd);
-            // Whether she is really down on him there (asked before her hips are moved, from where the game has them).
-            float seated = 1f - Mathf.Clamp01(Instance.HeroGapUnder(w, seat + Vector3.up * lift) / 0.03f);
             // A soft body gives as it lands: at the very bottom she sinks a little further, by as much as the setting allows.
             float low = 0.5f * (1f - sB);
             float give = Mathf.Clamp01(Plugin.RideSpring.Value) * 0.02f * shakeW * low * low * low;
             w.sHip.Offset(squat + pin + Vector3.up * (lift - give));
 
-            // How deep he is in her: all the way while she sits on him at the bottom of the stroke, less as she rises (the
-            // tip stays in at the top), and not at all while she is not down on him. His wetness comes from this.
-            float strokeShare = shakeW * Mathf.Clamp01(Plugin.RideBounce.Value * depth / 0.04f);
-            Instance.m_rideIn = seated * Mathf.Lerp(1f, 0.2f + 0.8f * low, strokeShare) * poseW;
+            // How deep he is in her, as a share of his length: from how far her crotch now is from his body. Sitting right
+            // down on him (as far into him as soft bodies give) he is all the way in; risen by his length, he is out.
+            float gap = Instance.HeroGapUnder(w, Vector3.zero) + Plugin.RideSink.Value;
+            Instance.m_rideIn = Mathf.Clamp01(1f - gap / Mathf.Max(0.05f, Instance.m_penisLength)) * poseW;
             Instance.m_rideInFrame = Time.frameCount;
 
             w.sPelvis.t.rotation = Quaternion.AngleAxis(roll, fwd) * Quaternion.AngleAxis(lean * 0.45f + pitch, right) * w.sPelvis.t.rotation;

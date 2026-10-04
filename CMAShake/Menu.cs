@@ -1429,8 +1429,8 @@ namespace CMAShake
                 Slider(st, T("Raise or lower him", "Поднять или опустить его"), Plugin.RideHeroClearance, -0.2f, 0.4f, "0", Cm, 100f,
                     T("Raise him if he sinks into the floor, lower him if he floats above it.", "Поднимите, если он проваливается в пол; опустите, если висит над полом."));
                 Check(st, T("His penis gets wet inside her", "Член намокает в ней"), Plugin.RideWet,
-                    T("While he is in her he gets wet from her: the deeper and the wetter she is, the faster. Out of her he dries slowly.",
-                      "Пока он в ней, член намокает от неё: тем быстрее, чем глубже он входит и чем она влажнее. Снаружи он медленно высыхает."));
+                    T("He gets wet from her only as far down as he has been in her: half in, and only the upper half is wet. The wetter she is, the faster. Out of her he dries slowly.",
+                      "Член намокает от неё только на ту глубину, на которую вошёл: вошёл наполовину — мокрая только верхняя половина. Чем она влажнее, тем быстрее. Снаружи он медленно высыхает."));
                 if (Plugin.RideWet.Value)
                 {
                     Slider(st, T("How wet he looks", "Насколько мокрым выглядит"), Plugin.RideWetShine, 0f, 1f, "0", " %", 100f,
