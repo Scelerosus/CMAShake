@@ -1,0 +1,12 @@
+C:\Users\Scelerosus\source\repos\CMAShake\bin\Release\CMAShake.deps.json
+C:\Users\Scelerosus\source\repos\CMAShake\bin\Release\CMAShake.dll
+C:\Users\Scelerosus\source\repos\CMAShake\obj\Release\CMAShake.csproj.AssemblyReference.cache
+C:\Users\Scelerosus\source\repos\CMAShake\obj\Release\CMAShake.GeneratedMSBuildEditorConfig.editorconfig
+C:\Users\Scelerosus\source\repos\CMAShake\obj\Release\CMAShake.AssemblyInfoInputs.cache
+C:\Users\Scelerosus\source\repos\CMAShake\obj\Release\CMAShake.AssemblyInfo.cs
+C:\Users\Scelerosus\source\repos\CMAShake\obj\Release\CMAShake.csproj.CoreCompileInputs.cache
+C:\Users\Scelerosus\source\repos\CMAShake\obj\Release\CMAShake.dll
+C:\Users\Scelerosus\source\repos\CMAShake\obj\Release\refint\CMAShake.dll
+C:\Users\Scelerosus\source\repos\CMAShake\obj\Release\ref\CMAShake.dll
+C:\Users\Scelerosus\AppData\Local\Temp\cmashake_out\CMAShake.deps.json
+C:\Users\Scelerosus\AppData\Local\Temp\cmashake_out\CMAShake.dll
