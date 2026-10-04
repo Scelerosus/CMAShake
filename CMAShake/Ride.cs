@@ -20,6 +20,9 @@ namespace CMAShake
         private bool m_herCrotchValid;
         private Vector3 m_herCrotch;
         private Vector3 m_crotchS;
+        // Where her vagina is from the middle of her hip joints, across the floor, smoothed so her rocking does not move him.
+        private Vector3 m_vulvaOff;
+        private bool m_vulvaOffValid;
         private Vector3 m_heroHomeGroin;
         private const float CamDistance = 0.6f;
         private const float CamHeight = 0.38f;
@@ -680,6 +683,7 @@ namespace CMAShake
             m_heroPush = 0f;
             m_pushVel = 0f;
             m_heroW = 0f;
+            PenisForget();
             m_hero = null;
             m_heroReady = false;
         }
@@ -704,10 +708,27 @@ namespace CMAShake
             float floor = m_rideGroundY - 0.05f + Plugin.RideHeroClearance.Value;
             if (m_herCrotchValid)
             {
-                // Matching the crotches: he is laid so that the middle of his hip joints is under the middle of hers, whatever
-                // the pose, the lean and the facing, and then moved along his body by the fine-tuning, if it is set.
+                // Matching the crotches: he is laid so that his penis is under her vagina (or, if it was not found, the
+                // middle of his hip joints under the middle of hers), whatever the pose, the lean and the facing, and then
+                // moved along his body by the fine-tuning, if it is set.
                 Vector3 groinRel = turn * (m_heroHomeGroin - m_heroHomeHips);
                 Vector3 target = m_crotchS + headDir * Plugin.RideHeroShift.Value;
+                if (m_penisValid)
+                {
+                    // The point of the shaft that is under her: where it is at the height her vagina has halfway through her
+                    // stroke, so that it goes into her along its length rather than past it.
+                    Vector3 baseRel = turn * (m_penisHomeBase - m_heroHomeHips);
+                    Vector3 shaft = turn * (m_penisHomeTip - m_penisHomeBase);
+                    float len = shaft.magnitude;
+                    Vector3 dir = len > 1e-4f ? shaft / len : Vector3.up;
+                    float halfway = Mathf.Min(0.5f * Plugin.RideBounce.Value, 0.5f * len);
+                    float s = Mathf.Clamp(halfway / Mathf.Max(dir.y, 0.3f), 0f, 0.7f * len);
+                    groinRel = baseRel + dir * s;
+                    if (m_vulvaOffValid)
+                    {
+                        target += m_vulvaOff;
+                    }
+                }
                 // The bones run along the middle of the body: his back is about a hand's width below the lowest one.
                 pivotTarget = new Vector3(target.x - groinRel.x, floor + 0.10f - lowest, target.z - groinRel.z);
                 return;
@@ -838,6 +859,7 @@ namespace CMAShake
                     LogHeroPuppet("before");
                     FreezeHeroControllers(hero);
                     FreezeHeroAnimation(hero);
+                    PenisCapture(hero);
                     WetCapture(hero);
                     m_heroFwd = HeroHeadGoal();
                     m_swayFrom = 0f;
@@ -923,6 +945,15 @@ namespace CMAShake
                         Vector3 his = 0.5f * (m_heroThighL.position + m_heroThighR.position);
                         float off = new Vector2(his.x - m_herCrotch.x, his.z - m_herCrotch.z).magnitude;
                         Plugin.ModLog.LogInfo($"Ride: crotch match: hers {m_herCrotch.ToString("F2")} his {his.ToString("F2")}, off by {off * 100f:F1} cm across the floor.");
+                    }
+                    if (m_rideWoman != null && PenisNow(out Vector3 pb, out Vector3 pt))
+                    {
+                        // How well his penis meets her: where it is, where her vagina is, and how far off its line she is.
+                        Vector3 v = VulvaOf(m_rideWoman);
+                        Vector3 dir = (pt - pb).normalized;
+                        float along = Vector3.Dot(v - pb, dir);
+                        float side = (v - pb - dir * along).magnitude;
+                        Plugin.ModLog.LogInfo($"Ride: penis match: base {pb.ToString("F2")} tip {pt.ToString("F2")} (pointing {dir.ToString("F2")}), her vagina {v.ToString("F2")}: {along * 100f:F1} cm along it, {side * 100f:F1} cm off its line; depth {DepthIn(v):F2}.");
                     }
                 }
             }
@@ -1030,11 +1061,12 @@ namespace CMAShake
             // Started again while she is still in the pose of the ride before: the same woman keeps the layout she has, so
             // that nothing of it is found afresh and jumps.
             Woman before = m_poseW > 0.001f ? m_rideWoman : null;
-            bool hadCam = m_camValid, hadGeo = m_rideGeoInit, hadCrotch = m_herCrotchValid;
+            bool hadCam = m_camValid, hadGeo = m_rideGeoInit, hadCrotch = m_herCrotchValid, hadVulva = m_vulvaOffValid;
             m_rideWoman = null;
             m_camValid = false;
             m_rideGeoInit = false;
             m_herCrotchValid = false;
+            m_vulvaOffValid = false;
             m_heroLowTries = 0;
             Camera cam = Camera.main;
             if (m_women.Count == 0)
@@ -1060,6 +1092,7 @@ namespace CMAShake
                 m_camValid = hadCam;
                 m_rideGeoInit = hadGeo;
                 m_herCrotchValid = hadCrotch;
+                m_vulvaOffValid = hadVulva;
             }
             Plugin.ModLog.LogInfo(m_rideWoman != null ? $"Ride: with '{m_rideWoman.name}'." : "Ride: no model found yet.");
         }
@@ -1265,10 +1298,16 @@ namespace CMAShake
             float give = Mathf.Clamp01(Plugin.RideSpring.Value) * 0.02f * shakeW * low * low * low;
             w.sHip.Offset(squat + pin + Vector3.up * (lift - give));
 
-            // How deep he is in her, as a share of his length: from how far her crotch now is from his body. Sitting right
-            // down on him (as far into him as soft bodies give) he is all the way in; risen by his length, he is out.
-            float gap = Instance.HeroGapUnder(w, Vector3.zero) + Plugin.RideSink.Value;
-            Instance.m_rideIn = Mathf.Clamp01(1f - gap / Mathf.Max(0.05f, Instance.m_penisLength)) * poseW;
+            // How deep he is in her: how much of his penis, from the tip, is past her vagina now. If his penis was not
+            // found, from how far her crotch is from his body instead.
+            Vector3 vulva = VulvaOf(w);
+            float inHer = Instance.DepthIn(vulva);
+            if (inHer < 0f)
+            {
+                float gap = Instance.HeroGapUnder(w, Vector3.zero) + Plugin.RideSink.Value;
+                inHer = Mathf.Clamp01(1f - gap / Mathf.Max(0.05f, Instance.m_penisLength));
+            }
+            Instance.m_rideIn = inHer * poseW;
             Instance.m_rideInFrame = Time.frameCount;
 
             w.sPelvis.t.rotation = Quaternion.AngleAxis(roll, fwd) * Quaternion.AngleAxis(lean * 0.45f + pitch, right) * w.sPelvis.t.rotation;
@@ -1331,6 +1370,17 @@ namespace CMAShake
             Vector3 hipsMid = 0.5f * (w.legs[0].upper.t.position + w.legs[1].upper.t.position);
             Instance.m_herCrotch = hipsMid - new Vector3(squat.x, 0f, squat.z);
             Instance.m_herCrotchValid = true;
+            // Where her vagina is from there, across the floor; slowly, so the rock of her pelvis does not carry him with it.
+            Vector3 vOff = new Vector3(vulva.x - hipsMid.x, 0f, vulva.z - hipsMid.z);
+            if (!Instance.m_vulvaOffValid)
+            {
+                Instance.m_vulvaOff = vOff;
+                Instance.m_vulvaOffValid = true;
+            }
+            else
+            {
+                Instance.m_vulvaOff = Vector3.Lerp(Instance.m_vulvaOff, vOff, 1f - Mathf.Exp(-Mathf.Clamp(Time.deltaTime, 0.004f, 0.1f) / 1.5f));
+            }
 
             // The soft bones add their own bounce, shaken by how the hips really moved.
             Wobble(w, squat, shakeW);

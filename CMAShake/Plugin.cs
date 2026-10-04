@@ -16,7 +16,7 @@ namespace CMAShake
     {
         public const string PluginGuid = "community.cma.shake";
         public const string PluginName = "CMA Shake";
-        public const string PluginVersion = "0.17.0";
+        public const string PluginVersion = "0.18.0";
 
         internal static ManualLogSource ModLog;
         internal static ConfigFile Cfg;
@@ -324,6 +324,9 @@ namespace CMAShake
         public PosSlot glL, glR, peL, peR;
         public Limb[] legs = new Limb[2];
         public Limb[] arms = new Limb[2];
+        // Her vagina, if her rig has a bone for it (looked for once).
+        public Transform vulva;
+        public bool vulvaSearched;
 
         // The wobble of the soft bones, and the hips' motion it is driven by.
         public readonly Jiggle jglL = new Jiggle(5.3f, 0.2f);

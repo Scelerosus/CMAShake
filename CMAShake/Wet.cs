@@ -514,10 +514,10 @@ namespace CMAShake
             }
             // Fluid has almost no colour of its own: it darkens the skin a little and shines. (A light colour here would lie
             // on the skin like lotion.) Where the highlights are not kept apart from the alpha, more of it is needed to show.
-            m.SetColor("_BaseColor", new Color(0.03f, 0.03f, 0.035f, Mathf.Lerp(0f, preserve ? 0.16f : 0.35f, level)));
-            SetIfHas(m, "_Smoothness", Mathf.Lerp(0.2f, 0.95f, level));
+            m.SetColor("_BaseColor", new Color(0.03f, 0.03f, 0.035f, Mathf.Lerp(0f, preserve ? 0.22f : partial ? 0.55f : 0.4f, level)));
+            SetIfHas(m, "_Smoothness", Mathf.Lerp(0.3f, 0.98f, level));
             SetIfHas(m, "_SmoothnessRemapMin", partial ? 0f : Mathf.Lerp(0.1f, 0.6f, level));
-            SetIfHas(m, "_SmoothnessRemapMax", Mathf.Lerp(0.25f, 0.98f, level));
+            SetIfHas(m, "_SmoothnessRemapMax", Mathf.Lerp(0.3f, 1f, level));
             SetIfHas(m, "_NormalScale", Mathf.Lerp(0.05f, 0.25f, level));
         }
 
@@ -1212,7 +1212,8 @@ namespace CMAShake
                     // Inside her he is never quite dry: a quarter is the least that she leaves on him. He is wet as far down
                     // as he has gone into her.
                     m_wet = Mathf.Clamp01(m_wet + dt * Mathf.Max(inHer, 0.3f) * Mathf.Max(m_herWet, 0.25f) / 5f);
-                    m_wetReach = Mathf.Max(m_wetReach, inHer);
+                    // A little past where her entrance reached, so that sitting right down on him wets him to the root.
+                    m_wetReach = Mathf.Max(m_wetReach, Mathf.Clamp01(inHer * 1.1f));
                 }
                 else
                 {
