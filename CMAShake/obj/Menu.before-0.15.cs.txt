@@ -64,11 +64,6 @@ namespace CMAShake
         private static Vector2 s_pos = new Vector2(24f, 24f);
         private static bool s_drag;
         private static Vector2 s_dragOffset;
-        private static bool s_resize;
-        private static float s_height;
-        private static bool s_layoutLoaded;
-        private static float s_uiScale;
-        private const float MinHeight = 380f;
         private static int s_tab;
         private static Vector2 s_scroll;
         private static Vector2 s_listScroll;
@@ -111,10 +106,8 @@ namespace CMAShake
             s_typing = false;
             s_drag = false;
             s_capture = null;
-            s_resize = false;
             if (open)
             {
-                LoadLayout();
                 s_failed = false;
                 s_openedAt = Time.unscaledTime;
                 Refresh();
@@ -164,26 +157,6 @@ namespace CMAShake
             {
                 Plugin.ModLog.LogWarning("Could not save the settings: " + ex.Message);
             }
-        }
-
-        // Where the window was left, how tall and how big it is: kept in the config file between games.
-        private static void LoadLayout()
-        {
-            if (s_layoutLoaded)
-            {
-                return;
-            }
-            s_layoutLoaded = true;
-            s_pos = new Vector2(Plugin.WindowX.Value, Plugin.WindowY.Value);
-            s_height = Plugin.WindowHeight.Value;
-        }
-
-        private static void StoreLayout()
-        {
-            Plugin.WindowX.Value = Mathf.Round(s_pos.x);
-            Plugin.WindowY.Value = Mathf.Round(s_pos.y);
-            Plugin.WindowHeight.Value = Mathf.Round(s_height);
-            MarkDirty();
         }
 
         // ---- clothing list ----
@@ -699,35 +672,30 @@ namespace CMAShake
             Styles st = s_st;
             Event ev = Event.current;
 
-            // The size slider takes effect once it is let go: changing the size under the pointer while it drags would make it jump.
-            if (s_uiScale <= 0f || GUIUtility.hotControl == 0)
-            {
-                s_uiScale = Mathf.Clamp(Plugin.UiScale.Value, 0.75f, 1.5f);
-            }
-            float scale = Mathf.Max(1f, Screen.height / 1080f) * s_uiScale;
+            float scale = Mathf.Max(1f, Screen.height / 1080f);
             GUI.matrix = Matrix4x4.Scale(new Vector3(scale, scale, 1f));
             float sw = Screen.width / scale;
             float sh = Screen.height / scale;
-            bool collapsed = Plugin.WindowCollapsed.Value;
-            float maxH = Mathf.Max(MinHeight, sh - 20f);
-            float h = collapsed ? 128f : s_height > 1f ? Mathf.Clamp(s_height, MinHeight, maxH) : Mathf.Min(sh - 40f, 920f);
+            float h = Mathf.Min(sh - 40f, 920f);
             s_pos.x = Mathf.Clamp(s_pos.x, 0f, Mathf.Max(0f, sw - 140f));
             s_pos.y = Mathf.Clamp(s_pos.y, 0f, Mathf.Max(0f, sh - 90f));
 
-            // Esc: first lets go of a text box, then closes the window. (While a hotkey waits for its key, Esc cancels that above.)
-            if (s_capture == null && ev != null && ev.type == EventType.KeyDown && ev.keyCode == KeyCode.Escape)
+            // A key is being chosen for a hotkey: the next key pressed is it. Esc leaves it as it was, Backspace sets none.
+            if (s_capture != null && ev != null && ev.type == EventType.KeyDown && ev.keyCode != KeyCode.None)
             {
+                if (ev.keyCode == KeyCode.Backspace || ev.keyCode == KeyCode.Delete)
+                {
+                    s_capture.Value = KeyCode.None;
+                    MarkDirty();
+                }
+                else if (ev.keyCode != KeyCode.Escape)
+                {
+                    s_capture.Value = ev.keyCode;
+                    MarkDirty();
+                }
+                s_capture = null;
                 ev.Use();
-                if (s_typing)
-                {
-                    GUI.FocusControl(null);
-                    s_typing = false;
-                }
-                else
-                {
-                    SetOpen(host, false);
-                    return;
-                }
+                SaveIfDirty();
             }
 
             // Fades and slides in when opened.
@@ -735,25 +703,14 @@ namespace CMAShake
             GUI.color = new Color(1f, 1f, 1f, appear);
             Rect r = new Rect(s_pos.x, s_pos.y + (1f - appear) * 14f, Width, h);
 
-            // Drag the window by its header (the part of it that has no buttons); change its height by the bottom-right corner.
-            Rect header = new Rect(r.x, r.y, r.width - 230f, 66f);
-            Rect grip = new Rect(r.xMax - 26f, r.yMax - 26f, 26f, 26f);
+            // Drag the window by its header (the part of it that has no buttons).
+            Rect header = new Rect(r.x, r.y, r.width - 190f, 66f);
             if (ev != null)
             {
-                if (ev.type == EventType.MouseDown && ev.button == 0 && !collapsed && grip.Contains(ev.mousePosition))
-                {
-                    s_resize = true;
-                    ev.Use();
-                }
-                else if (ev.type == EventType.MouseDown && ev.button == 0 && header.Contains(ev.mousePosition))
+                if (ev.type == EventType.MouseDown && ev.button == 0 && header.Contains(ev.mousePosition))
                 {
                     s_drag = true;
                     s_dragOffset = ev.mousePosition - s_pos;
-                }
-                else if (s_resize && ev.type == EventType.MouseDrag)
-                {
-                    s_height = Mathf.Clamp(ev.mousePosition.y - r.y + 8f, MinHeight, maxH);
-                    ev.Use();
                 }
                 else if (s_drag && ev.type == EventType.MouseDrag)
                 {
@@ -761,12 +718,7 @@ namespace CMAShake
                 }
                 else if (ev.rawType == EventType.MouseUp)
                 {
-                    if (s_drag || s_resize)
-                    {
-                        StoreLayout();
-                    }
                     s_drag = false;
-                    s_resize = false;
                 }
             }
 
@@ -790,29 +742,13 @@ namespace CMAShake
                 MarkDirty();
             }
             GUILayout.Space(8f);
-            if (GUILayout.Button(collapsed ? "+" : "–", st.close, GUILayout.Width(32f), GUILayout.Height(32f)))
-            {
-                Plugin.WindowCollapsed.Value = !collapsed;
-                MarkDirty();
-                SaveIfDirty();
-            }
-            Tip(collapsed ? T("Unfold the window.", "Развернуть окно.") : T("Fold the window to a small bar with the start buttons.", "Свернуть окно в маленькую панель с кнопками запуска."));
             if (GUILayout.Button("X", st.close, GUILayout.Width(32f), GUILayout.Height(32f)))
             {
                 SetOpen(host, false);
             }
             GUILayout.EndHorizontal();
-
-            if (collapsed)
-            {
-                DrawQuickBar(host, st);
-                GUILayout.EndVertical();
-                GUILayout.EndArea();
-                FinishFrame(ev);
-                return;
-            }
-
-            GUILayout.Space(4f);
+            GUILayout.Label(T("Twerk, ride and bikini: everything in one place", "Тверк, райд и бикини: всё в одном месте"), st.dim);
+            GUILayout.Space(6f);
 
             string[] tabs = { T("Home", "Главная"), T("Twerk", "Тверк"), T("Ride", "Райд"), T("Bikini", "Бикини"), T("Profiles", "Профили"), T("Settings", "Настройки") };
             GUILayout.BeginHorizontal(st.seg);
@@ -823,7 +759,6 @@ namespace CMAShake
                 {
                     s_tab = i;
                     s_capture = null;
-                    s_scroll = Vector2.zero;
                 }
             }
             GUILayout.EndHorizontal();
@@ -840,54 +775,26 @@ namespace CMAShake
             }
             GUILayout.EndScrollView();
 
-            // One line at the bottom: what the setting under the pointer does, or the keys when the pointer is on nothing.
+            // What the setting under the pointer does, in a line or two.
             GUILayout.Space(6f);
-            if (!string.IsNullOrEmpty(s_tipShown))
-            {
-                GUILayout.Label(s_tipShown, st.tip, GUILayout.Height(40f));
-            }
-            else
-            {
-                GUILayout.BeginHorizontal(GUILayout.Height(40f));
-                Hint(st, Plugin.MenuKey.Value, T("menu", "меню"));
-                Hint(st, Plugin.ToggleKey.Value, T("twerk", "тверк"));
-                Hint(st, Plugin.RideKey.Value, T("ride", "райд"));
-                Hint(st, Plugin.BikiniKey.Value, T("bikini", "бикини"));
-                Hint(st, Plugin.PresetKey.Value, T("preset", "пресет"));
-                GUILayout.Label("Esc", st.keycap);
-                GUILayout.Label(T("close", "закрыть"), st.dim, GUILayout.Width(58f));
-                GUILayout.FlexibleSpace();
-                GUILayout.EndHorizontal();
-            }
+            string tip = !string.IsNullOrEmpty(s_tipShown)
+                ? s_tipShown
+                : T("Point at a setting to read what it does. Right-click a slider to put it back to its default.",
+                    "Наведите на настройку, и здесь появится подсказка. Правый щелчок по ползунку возвращает значение по умолчанию.");
+            GUILayout.Label(tip, st.tip, GUILayout.Height(54f));
+
+            GUILayout.BeginHorizontal();
+            Hint(st, Plugin.MenuKey.Value, T("menu", "меню"));
+            Hint(st, Plugin.ToggleKey.Value, T("twerk", "тверк"));
+            Hint(st, Plugin.RideKey.Value, T("ride", "райд"));
+            Hint(st, Plugin.BikiniKey.Value, T("bikini", "бикини"));
+            Hint(st, Plugin.PresetKey.Value, T("preset", "пресет"));
+            GUILayout.FlexibleSpace();
+            GUILayout.EndHorizontal();
 
             GUILayout.EndVertical();
             GUILayout.EndArea();
 
-            // The corner that changes the height: three short diagonal strokes.
-            if (Repainting())
-            {
-                Color keep = GUI.color;
-                bool hot = s_resize || (ev != null && grip.Contains(ev.mousePosition));
-                GUI.color = new Color(1f, 1f, 1f, (hot ? 0.75f : 0.3f) * keep.a);
-                for (int i = 0; i < 3; i++)
-                {
-                    for (int j = 0; j < 3; j++)
-                    {
-                        if (i + j >= 2)
-                        {
-                            GUI.DrawTexture(new Rect(grip.x + 6f + i * 5f, grip.y + 6f + j * 5f, 3f, 3f), tWhitePill);
-                        }
-                    }
-                }
-                GUI.color = keep;
-            }
-
-            FinishFrame(ev);
-        }
-
-        // The end of every frame of the window, folded or not.
-        private static void FinishFrame(Event ev)
-        {
             if (Repainting())
             {
                 s_tipShown = GUI.tooltip;
@@ -900,37 +807,6 @@ namespace CMAShake
             {
                 SaveIfDirty();
             }
-        }
-
-        // The folded window: the three start buttons and nothing else.
-        private static void DrawQuickBar(ShakeController host, Styles st)
-        {
-            bool twerk = host.Twerking;
-            bool ride = host.Riding;
-            bool bikini = Bikini.AnyOn();
-            GUILayout.Space(6f);
-            GUILayout.BeginHorizontal();
-            if (GUILayout.Button(T("Twerk", "Тверк"), twerk ? st.bigOn : st.big, GUILayout.Height(40f)))
-            {
-                host.ToggleMode(false);
-            }
-            GUILayout.Space(8f);
-            if (GUILayout.Button(T("Ride", "Райд"), ride ? st.bigOn : st.big, GUILayout.Height(40f)))
-            {
-                host.ToggleMode(true);
-            }
-            GUILayout.Space(8f);
-            if (GUILayout.Button(T("Bikini", "Бикини"), bikini ? st.bigOn : st.big, GUILayout.Height(40f)))
-            {
-                host.ToggleBikini();
-            }
-            GUILayout.Space(8f);
-            if (GUILayout.Button(Loc.Preset(Plugin.PresetName.Value), st.big, GUILayout.Width(120f), GUILayout.Height(40f)))
-            {
-                host.CyclePreset();
-            }
-            Tip(T("The preset: click for the next one.", "Пресет: щелчок — следующий."));
-            GUILayout.EndHorizontal();
         }
 
         private static void Hint(Styles st, KeyCode key, string what)
@@ -1801,26 +1677,6 @@ namespace CMAShake
             CardBegin(st, T("Language", "Язык"));
             ChoiceRow(st, T("Language of the window", "Язык окна"), new[] { "Русский", "English", T("Auto", "Авто") }, new[] { "ru", "en", "auto" }, Plugin.Language, 100f,
                 T("Auto follows the language of your system.", "«Авто» берёт язык системы."));
-            CardEnd();
-
-            CardBegin(st, T("Window", "Окно"));
-            Slider(st, T("Window size", "Размер окна"), Plugin.UiScale, 0.75f, 1.5f, "0", " %", 100f,
-                T("Makes the whole window bigger or smaller. Applied when the slider is let go.", "Увеличивает или уменьшает всё окно целиком. Применяется, когда отпустите ползунок."));
-            GUILayout.BeginHorizontal();
-            if (GUILayout.Button(T("Back to the corner", "Вернуть в угол"), st.button, GUILayout.Height(32f)))
-            {
-                s_pos = new Vector2(24f, 24f);
-                StoreLayout();
-            }
-            Tip(T("Puts the window back at the top-left of the screen.", "Возвращает окно в левый верхний угол экрана."));
-            GUILayout.Space(6f);
-            if (GUILayout.Button(T("Full height", "Во всю высоту"), st.button, GUILayout.Height(32f)))
-            {
-                s_height = 0f;
-                StoreLayout();
-            }
-            Tip(T("Makes the window as tall as the screen allows. Drag its bottom-right corner to make it shorter.", "Растягивает окно на всю доступную высоту. Потяните за правый нижний угол, чтобы сделать ниже."));
-            GUILayout.EndHorizontal();
             CardEnd();
 
             CardBegin(st, T("Keys", "Клавиши"));

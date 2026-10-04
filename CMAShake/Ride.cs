@@ -25,6 +25,7 @@ namespace CMAShake
         private const float CamHeight = 0.38f;
         private Vector3 m_rideFwd = Vector3.forward;
         private Vector3 m_ridePelvis;
+        private Vector3 m_rideAnchor;
         private float m_rideGroundY;
 
         // The hero is moved for real. His body hangs from one root (the 'Anim' object of his puppet): the skeleton that is
@@ -84,10 +85,6 @@ namespace CMAShake
         private void FreezeHeroControllers(Character hero)
         {
             m_heroActivable = null;
-            if (!Plugin.RideHeroControllers.Value)
-            {
-                return;
-            }
             try
             {
                 var act = FindHeroActivable(hero);
@@ -123,10 +120,6 @@ namespace CMAShake
         private void FreezeHeroAnimation(Character hero)
         {
             m_heroAnimator = null;
-            if (!Plugin.RideHeroControllers.Value)
-            {
-                return;
-            }
             try
             {
                 Animator anim = hero.bodyAnimator;
@@ -210,6 +203,7 @@ namespace CMAShake
         private Vector3 m_heroFwd = Vector3.forward;
         private float m_swayFrom;
         private float m_swayMinX, m_swayMaxX, m_swayMinY, m_swayMaxY, m_herMinX, m_herMaxX;
+        private Vector3 m_swayAlong, m_swaySide, m_swayOrigin, m_swayHerOrigin;
 
         private void AddHeroSeg(Transform a, Transform b, float radius)
         {
@@ -307,10 +301,10 @@ namespace CMAShake
                     want = Mathf.Max(want, SinkOf(w.legs[i].upper.t.position + offset, 0.085f));
                 }
             }
-            // She lands on him like a body with weight: the lift follows what is needed through a spring, so on a hard stroke
-            // she sinks in a little before it holds her, and springs back after. Springiness 0 follows it without a bounce.
+            // The lift follows what is needed the way a well damped spring would: quickly, but without a step when what is under
+            // her changes (the edge of his body, his lying down) and without ringing after it.
             float dt = Mathf.Clamp(Time.deltaTime, 0.004f, 0.05f);
-            float zeta = Mathf.Lerp(1f, 0.2f, Mathf.Clamp01(Plugin.RideSpring.Value));
+            float zeta = 1f;
             float omega = 2f * Mathf.PI * 7f;
             int steps = Mathf.Clamp(Mathf.CeilToInt(dt / 0.004f), 1, 14);
             float h = dt / steps;
@@ -682,7 +676,7 @@ namespace CMAShake
             Quaternion standing = Quaternion.LookRotation(m_heroHomeFacing, up);
             // Facing him, his head is toward where she faces; reversed, it is behind her and he lies the other way round.
             bool away = string.Equals(Plugin.RideFacing.Value, "Away", StringComparison.OrdinalIgnoreCase);
-            Vector3 headDir = away ? -m_heroFwd : m_heroFwd;
+            Vector3 headDir = m_heroFwd;
             Quaternion lying = Quaternion.LookRotation(up, headDir);
             turn = lying * Quaternion.Inverse(standing);
 
@@ -692,7 +686,7 @@ namespace CMAShake
                 lowest = Mathf.Min(lowest, (turn * (p - m_heroHomeHips)).y);
             }
             float floor = m_rideGroundY - 0.05f + Plugin.RideHeroClearance.Value;
-            if (Plugin.RideAutoMatch.Value && m_herCrotchValid)
+            if (m_herCrotchValid)
             {
                 // Matching the crotches: he is laid so that the middle of his hip joints is under the middle of hers, whatever
                 // the pose, the lean and the facing, and then moved along his body by the fine-tuning, if it is set.
@@ -702,7 +696,8 @@ namespace CMAShake
                 pivotTarget = new Vector3(target.x - groinRel.x, floor + 0.10f - lowest, target.z - groinRel.z);
                 return;
             }
-            // Not matched: his head goes to the view point, in front of her pelvis (or behind it when she faces away).
+            // Before her crotch has been measured (the first frame): his head goes to the view point, in front of her pelvis
+            // (or behind it when she faces away).
             Vector3 headRel = turn * (m_heroHomeHead - m_heroHomeHips);
             Vector3 aim = away ? 2f * m_ridePelvis - m_heroAim : m_heroAim;
             Vector3 headAt = new Vector3(aim.x, 0f, aim.z) + headDir * Plugin.RideHeroShift.Value;
@@ -726,7 +721,7 @@ namespace CMAShake
         private void ApplyHeroRoot()
         {
             m_heroRoot.SetPositionAndRotation(m_heroSetPos, m_heroSetRot);
-            if (Plugin.RideHeroSolid.Value && m_heroPuppet != null)
+            if (m_heroPuppet != null)
             {
                 // The puppet's own teleport: his physical body is put on his root, so it is never dragged there by forces.
                 m_heroPuppet.MoveToTarget();
@@ -785,7 +780,7 @@ namespace CMAShake
             {
                 // He lies down while the ride is on and gets up when it is off, or when it turns into the twerk, each at his own
                 // pace. He is let go only once he is standing at home again, never in the middle of a step.
-                bool lieDown = Plugin.RideHero.Value && m_ride && m_toggled;
+                bool lieDown = m_ride && m_toggled && !m_switching;
                 if (!m_heroReady)
                 {
                     m_heroW = 0f;
@@ -828,7 +823,7 @@ namespace CMAShake
                     FreezeHeroControllers(hero);
                     FreezeHeroAnimation(hero);
                     WetCapture(hero);
-                    m_heroFwd = m_rideFwd;
+                    m_heroFwd = HeroHeadGoal();
                     m_swayFrom = 0f;
                     m_heroAim = m_camPos;
                     m_crotchS = m_herCrotchValid ? m_herCrotch : m_camPos;
@@ -860,7 +855,10 @@ namespace CMAShake
                         m_crotchS = Vector3.Lerp(m_crotchS, m_herCrotch, k);
                     }
                     float kf = 1f - Mathf.Exp(-dtU / 1.2f);
-                    m_heroFwd = Vector3.Slerp(m_heroFwd, m_rideFwd, kf).normalized;
+                    // He is turned about the upright only, by a part of the angle that is left: turning her round on him (the
+                    // reverse) swings him round under her, flat on the floor, instead of flipping him over at once.
+                    float turnLeft = Vector3.SignedAngle(m_heroFwd, HeroHeadGoal(), Vector3.up);
+                    m_heroFwd = (Quaternion.AngleAxis(turnLeft * kf, Vector3.up) * m_heroFwd).normalized;
                 }
                 if (m_heroAnimator != null && m_heroAnimator.speed != 0f)
                 {
@@ -908,7 +906,7 @@ namespace CMAShake
                         // How well the crotches match: the distance between the two points across the floor.
                         Vector3 his = 0.5f * (m_heroThighL.position + m_heroThighR.position);
                         float off = new Vector2(his.x - m_herCrotch.x, his.z - m_herCrotch.z).magnitude;
-                        Plugin.ModLog.LogInfo($"Ride: crotch match: hers {m_herCrotch.ToString("F2")} his {his.ToString("F2")}, off by {off * 100f:F1} cm across the floor (auto-match {(Plugin.RideAutoMatch.Value ? "on" : "off")}).");
+                        Plugin.ModLog.LogInfo($"Ride: crotch match: hers {m_herCrotch.ToString("F2")} his {his.ToString("F2")}, off by {off * 100f:F1} cm across the floor.");
                     }
                 }
             }
@@ -936,28 +934,41 @@ namespace CMAShake
             {
                 return;
             }
-            bool away = string.Equals(Plugin.RideFacing.Value, "Away", StringComparison.OrdinalIgnoreCase);
-            Vector3 along = away ? -m_heroFwd : m_heroFwd;
-            Vector3 side = Vector3.Cross(Vector3.up, along);
-            Vector3 p = m_heroPivot.position;
-            float x = Vector3.Dot(p, side);
-            float y = Vector3.Dot(p, along);
-            float hx = Vector3.Dot(m_herCrotch, side);
             if (m_swayFrom == 0f)
             {
                 m_swayFrom = Time.time;
-                m_swayMinX = m_swayMaxX = x;
-                m_swayMinY = m_swayMaxY = y;
-                m_herMinX = m_herMaxX = hx;
+                m_swayMinX = float.NaN;
                 return;
             }
+            // The first three seconds are left out: he and she are still settling into the pose then.
+            if (Time.time - m_swayFrom < 3f)
+            {
+                return;
+            }
+            if (float.IsNaN(m_swayMinX))
+            {
+                // Measured from where he is now and along the way he lies now, both kept for the whole of the measuring. (Before,
+                // the axes were the ones of each frame and the positions were taken from the origin of the world: the least
+                // turn of the axes, a third of a degree, showed as 8 cm of sway that was not there.)
+                m_swayAlong = m_heroFwd;
+                m_swaySide = Vector3.Cross(Vector3.up, m_swayAlong);
+                m_swayOrigin = m_heroPivot.position;
+                m_swayHerOrigin = m_herCrotch;
+                m_swayMinX = m_swayMaxX = 0f;
+                m_swayMinY = m_swayMaxY = 0f;
+                m_herMinX = m_herMaxX = 0f;
+                return;
+            }
+            float x = Vector3.Dot(m_heroPivot.position - m_swayOrigin, m_swaySide);
+            float y = Vector3.Dot(m_heroPivot.position - m_swayOrigin, m_swayAlong);
+            float hx = Vector3.Dot(m_herCrotch - m_swayHerOrigin, m_swaySide);
             m_swayMinX = Mathf.Min(m_swayMinX, x);
             m_swayMaxX = Mathf.Max(m_swayMaxX, x);
             m_swayMinY = Mathf.Min(m_swayMinY, y);
             m_swayMaxY = Mathf.Max(m_swayMaxY, y);
             m_herMinX = Mathf.Min(m_herMinX, hx);
             m_herMaxX = Mathf.Max(m_herMaxX, hx);
-            if (Time.time - m_swayFrom >= 5f)
+            if (Time.time - m_swayFrom >= 8f)
             {
                 Plugin.ModLog.LogInfo($"Ride: hero sway over 5 s: sideways {(m_swayMaxX - m_swayMinX) * 100f:F1} cm, along his body {(m_swayMaxY - m_swayMinY) * 100f:F1} cm; her crotch sideways {(m_herMaxX - m_herMinX) * 100f:F1} cm.");
                 m_swayFrom = -1f;
@@ -981,11 +992,8 @@ namespace CMAShake
                     Plugin.ModLog.LogInfo($"Ride: the game moved the hero's root {moved:F2} m after it was set; put back.");
                 }
                 ApplyHeroRoot();
-                if (Plugin.RideHeroSolid.Value)
-                {
-                    // The physics scene is told now, not at its next step, so that contact checks made before then see him lying.
-                    Physics.SyncTransforms();
-                }
+                // The physics scene is told now, not at its next step, so that contact checks made before then see him lying.
+                Physics.SyncTransforms();
                 MeasureSway();
             }
             catch (Exception ex)
@@ -993,9 +1001,20 @@ namespace CMAShake
                 Plugin.ModLog.LogWarning("Hero final pose failed: " + ex.Message);
             }
         }
+        // Which way his head points as he lies: the way she faces, or the other way when she rides him reversed.
+        private Vector3 HeroHeadGoal()
+        {
+            bool away = string.Equals(Plugin.RideFacing.Value, "Away", StringComparison.OrdinalIgnoreCase);
+            return away ? -m_rideFwd : m_rideFwd;
+        }
+
         // The nearest woman to the player's view is the one who rides.
         private void StartRide()
         {
+            // Started again while she is still in the pose of the ride before: the same woman keeps the layout she has, so
+            // that nothing of it is found afresh and jumps.
+            Woman before = m_poseW > 0.001f ? m_rideWoman : null;
+            bool hadCam = m_camValid, hadGeo = m_rideGeoInit, hadCrotch = m_herCrotchValid;
             m_rideWoman = null;
             m_camValid = false;
             m_rideGeoInit = false;
@@ -1019,6 +1038,12 @@ namespace CMAShake
                     best = d;
                     m_rideWoman = w;
                 }
+            }
+            if (before != null && m_rideWoman == before)
+            {
+                m_camValid = hadCam;
+                m_rideGeoInit = hadGeo;
+                m_herCrotchValid = hadCrotch;
             }
             Plugin.ModLog.LogInfo(m_rideWoman != null ? $"Ride: with '{m_rideWoman.name}'." : "Ride: no model found yet.");
         }
@@ -1050,7 +1075,30 @@ namespace CMAShake
 
             // The ride is laid out from the unposed body, and the layout is eased: her own idle sway must not move him.
             float geoK = 1f - Mathf.Exp(-Mathf.Clamp(Time.deltaTime, 0.004f, 0.1f) / 0.3f);
-            if (!Instance.m_rideGeoInit)
+            // Her own idle animation shifts her hips about (8 cm from side to side in the log), and he, laid to match her, was
+            // carried about with them. Her hips are held to an anchor instead: the place they have on average, which follows
+            // where the game has her only very slowly. So her crotch stays in one place over him, and he stays still.
+            Vector3 baseCrotch = 0.5f * (w.legs[0].upper.t.position + w.legs[1].upper.t.position);
+            bool firstGeo = !Instance.m_rideGeoInit;
+            if (firstGeo)
+            {
+                Instance.m_rideAnchor = baseCrotch;
+            }
+            else
+            {
+                // The anchor all but stands still (half a minute to follow), so the sway, which comes back every few
+                // seconds, is held off whole and not just smoothed. Only when the game has truly moved her does it go after
+                // her: quickly from 15 cm away, almost at once from 30 cm.
+                Vector3 off = baseCrotch - Instance.m_rideAnchor;
+                off.y = 0f;
+                float gone = off.magnitude;
+                float tau = gone > 0.3f ? 0.4f : gone > 0.15f ? 1.5f : 30f;
+                Instance.m_rideAnchor = Vector3.Lerp(Instance.m_rideAnchor, baseCrotch, 1f - Mathf.Exp(-Mathf.Clamp(Time.deltaTime, 0.004f, 0.1f) / tau));
+            }
+            // How far her hips are carried back to the anchor: never so far that her legs, planted where the game has her
+            // feet, would be stretched.
+            Vector3 hold = Vector3.ClampMagnitude(new Vector3(Instance.m_rideAnchor.x - baseCrotch.x, 0f, Instance.m_rideAnchor.z - baseCrotch.z), 0.12f);
+            if (firstGeo)
             {
                 Instance.m_rideFwd = fwd;
                 Instance.m_rideGroundY = groundY;
@@ -1061,8 +1109,10 @@ namespace CMAShake
             {
                 Instance.m_rideFwd = Vector3.Slerp(Instance.m_rideFwd, fwd, geoK).normalized;
                 Instance.m_rideGroundY = Mathf.Lerp(Instance.m_rideGroundY, groundY, geoK);
-                Instance.m_ridePelvis = Vector3.Lerp(Instance.m_ridePelvis, pelvisBase, geoK);
+                // The pelvis the ride is laid out from is the held one too, so the view point and his aim do not sway either.
+                Instance.m_ridePelvis = Vector3.Lerp(Instance.m_ridePelvis, pelvisBase + hold, geoK);
             }
+            Vector3 pin = hold * poseW;
             Instance.m_camPos = new Vector3(Instance.m_ridePelvis.x, Instance.m_rideGroundY, Instance.m_ridePelvis.z) + Instance.m_rideFwd * CamDistance + Vector3.up * CamHeight;
             Instance.m_camValid = true;
 
@@ -1074,13 +1124,17 @@ namespace CMAShake
             float dir = mo.circleDir;
             float depth = mo.jitter * mo.amp;
 
-            // Drop into a deep squat over him, then move the hips: up and down, rocking forward and back, in circles.
+            // The stroke starts from where she sits. The squat is the lowest she goes; from there her hips rise by the length
+            // of the stroke and come back down, one whole smooth wave with nothing in its way at the bottom. (It used to swing
+            // above and below the squat, and his body cut the lower half of it off: she hit him, stopped dead and sprang.)
+            float squatDepth = Glide(w, G.RideSquat, Plugin.RideSquat.Value) * poseW;
+            float rise = 0.5f * (1f + sB) * Plugin.RideBounce.Value * depth * (mo.bounce + 0.5f * mo.circle);
             Vector3 hipMove =
-                Vector3.up * (sB * Plugin.RideBounce.Value * depth * (mo.bounce + 0.5f * mo.circle))
+                Vector3.up * rise
                 + fwd * ((s * Plugin.RideGrind.Value * mo.sway + s * dir * Plugin.CircleRadius.Value * mo.circle) * mo.amp)
                 + right * (c * Plugin.CircleRadius.Value * mo.circle * mo.amp)
                 + right * (mo.weight * 0.012f);
-            Vector3 squat = Vector3.down * (Plugin.RideSquat.Value * poseW) + hipMove * shakeW;
+            Vector3 squat = Vector3.down * squatDepth + hipMove * shakeW;
 
             // Lean over him; the pelvis rocks with every stroke and the rock travels up the spine a moment later.
             // With her hands on his thighs behind her she leans back to reach them, instead of forward over him.
@@ -1088,7 +1142,9 @@ namespace CMAShake
             bool handsOnThem = string.Equals(Plugin.RideHandsOn.Value, "HeroThighs", StringComparison.OrdinalIgnoreCase)
                 || (facingAway && string.Equals(Plugin.RideHandsOn.Value, "Hero", StringComparison.OrdinalIgnoreCase));
             bool handsBehind = handsOnThem && !facingAway;
-            float lean = (handsBehind ? -Plugin.RideLeanBack.Value : Plugin.RideLean.Value + mo.leanExtra * 0.5f) * poseW;
+            // What is set glides: leaning the other way, or her hands going somewhere else, is a movement, not a jump.
+            float behind = Glide(w, G.RideBehind, handsBehind ? 1f : 0f);
+            float lean = (Glide(w, G.RideLean, handsBehind ? -Plugin.RideLeanBack.Value : Plugin.RideLean.Value) + (1f - behind) * mo.leanExtra * 0.5f) * poseW;
             float pitch = Plugin.RideTilt.Value * depth * (cB * mo.bounce + s * mo.sway + s * dir * mo.circle) * shakeW;
             float roll = Plugin.RollDegrees.Value * c * mo.circle * shakeW + mo.weight * 1.6f * shakeW;
             float wave = Plugin.RideTilt.Value * depth * mo.bounce * shakeW;
@@ -1096,8 +1152,15 @@ namespace CMAShake
             float sp1Pitch = -wave * 0.12f * Skew(phase + Mathf.PI * 0.5f - 1.5f, skew);
 
             Ease(w, ref squat, ref pitch, ref roll, ref lean);
-            // She sits on him, not in him: lifted just as far as it takes for nothing of her to be inside his body.
-            w.sHip.Offset(squat + Vector3.up * Instance.HeroPushFor(w, squat, right, fwd));
+            // She sits on him, not in him. How far she has to be lifted for that is found for the bottom of the stroke (the
+            // squat itself, with the sideways and forward-and-back of this moment), so the lift is a steady thing that sets
+            // where she sits, and the stroke rides on top of it untouched.
+            Vector3 seat = new Vector3(squat.x, -squatDepth, squat.z) + pin;
+            float lift = Instance.HeroPushFor(w, seat, right, fwd);
+            // A soft body gives as it lands: at the very bottom she sinks a little further, by as much as the setting allows.
+            float low = 0.5f * (1f - sB);
+            float give = Mathf.Clamp01(Plugin.RideSpring.Value) * 0.02f * shakeW * low * low * low;
+            w.sHip.Offset(squat + pin + Vector3.up * (lift - give));
 
             w.sPelvis.t.rotation = Quaternion.AngleAxis(roll, fwd) * Quaternion.AngleAxis(lean * 0.45f + pitch, right) * w.sPelvis.t.rotation;
             w.sWaist.t.rotation = Quaternion.AngleAxis(lean * 0.25f + waistPitch, right) * w.sWaist.t.rotation;
@@ -1110,11 +1173,12 @@ namespace CMAShake
 
             // Feet stay planted but wider apart, so the knees fold outward.
             float legW = Mathf.Max(poseW, shakeW);
+            float stance = Glide(w, G.RideStance, Plugin.RideStance.Value) * poseW;
             for (int i = 0; i < 2; i++)
             {
                 Limb leg = w.legs[i];
                 Vector3 outward = i == 0 ? -right : right;
-                Vector3 target = footPos[i] + outward * (Plugin.RideStance.Value * poseW);
+                Vector3 target = footPos[i] + outward * stance;
                 // Wide enough apart to stand outside his legs, whatever the stance is set to.
                 target += outward * (Instance.HeroFootRoom(target, outward) * poseW);
                 Ik(leg, target, fwd * 0.5f + outward * 0.9f, legW);
@@ -1122,15 +1186,31 @@ namespace CMAShake
                 leg.end.Commit();
             }
 
-            // Her hands rest on the hero's chest, on his thighs behind her, or on her own thighs, as chosen.
+            // Her hands rest on the hero's chest, on his thighs behind her, or on her own thighs, as chosen. Each of the three
+            // places has a weight that glides, and her hands are at the blend of them: changing the place moves her arms there,
+            // and his body coming under her hands (or going) does not make them jump.
             bool onThighs = string.Equals(Plugin.RideHandsOn.Value, "Thighs", StringComparison.OrdinalIgnoreCase);
-            bool onHisThighs = handsOnThem && Instance.m_heroSolid && Instance.m_heroThighL != null && Instance.m_heroThighR != null
+            bool hisThighsThere = Instance.m_heroSolid && Instance.m_heroThighL != null && Instance.m_heroThighR != null
                 && Instance.m_heroKneeL != null && Instance.m_heroKneeR != null && Instance.m_heroPivot != null;
-            Vector3 chest = Instance.m_camPos + Vector3.down * 0.12f - fwd * 0.2f;
-            if (Instance.m_heroSolid && Instance.m_heroChest != null)
+            bool chestThere = Instance.m_heroSolid && Instance.m_heroChest != null;
+            float onHis = Glide(w, G.RideHandsHis, handsOnThem && hisThighsThere ? 1f : 0f);
+            float onOwn = Glide(w, G.RideHandsOwn, onThighs ? 1f : 0f);
+            float onChest = Glide(w, G.RideHandsChest, !onThighs && !(handsOnThem && hisThighsThere) ? 1f : 0f);
+            float chestReal = Glide(w, G.RideChestReal, chestThere ? 1f : 0f);
+            if (!hisThighsThere)
             {
-                // His real chest, as he lies now.
-                chest = Instance.m_heroChest.position;
+                onHis = 0f;
+            }
+            if (onHis + onOwn + onChest < 0.001f)
+            {
+                onChest = 1f;
+            }
+            float onSum = onHis + onOwn + onChest;
+            // Where his chest is taken to be until he is there, and his real chest once he lies.
+            Vector3 chest = Instance.m_camPos + Vector3.down * 0.12f - fwd * 0.2f;
+            if (chestThere)
+            {
+                chest = Vector3.Lerp(chest, Instance.m_heroChest.position, chestReal);
             }
             for (int i = 0; i < 2; i++)
             {
@@ -1140,9 +1220,9 @@ namespace CMAShake
                     continue;
                 }
                 Vector3 outward = i == 0 ? -right : right;
-                Vector3 target;
-                Vector3 pole;
-                if (onHisThighs)
+                Vector3 target = Vector3.zero;
+                Vector3 pole = Vector3.zero;
+                if (onHis > 0.001f)
                 {
                     // On the thigh of his that is on her side, with the elbow out and back.
                     Vector3 middle = Instance.m_heroPivot.position;
@@ -1150,27 +1230,28 @@ namespace CMAShake
                     Vector3 top = Vector3.Lerp(useLeft ? Instance.m_heroThighL.position : Instance.m_heroThighR.position,
                         useLeft ? Instance.m_heroKneeL.position : Instance.m_heroKneeR.position, 0.4f);
                     float surface = Instance.HeroTopAt(top);
-                    target = new Vector3(top.x, float.IsNegativeInfinity(surface) ? top.y + 0.1f : surface + 0.03f, top.z);
-                    pole = handsBehind ? outward * 0.6f - fwd * 0.5f : outward + Vector3.up * 0.3f;
+                    target += onHis * new Vector3(top.x, float.IsNegativeInfinity(surface) ? top.y + 0.1f : surface + 0.03f, top.z);
+                    pole += onHis * Vector3.Lerp(outward + Vector3.up * 0.3f, outward * 0.6f - fwd * 0.5f, behind);
                 }
-                else if (onThighs)
+                if (onOwn > 0.001f)
                 {
-                    // On the thigh, a little above the middle of it, with the elbow out to the side.
-                    target = Vector3.Lerp(w.legs[i].upper.t.position, w.legs[i].fore.t.position, 0.6f) + Vector3.up * 0.07f + outward * 0.03f;
-                    pole = outward - fwd * 0.3f + Vector3.up * 0.2f;
+                    // On her own thigh, a little above the middle of it, with the elbow out to the side.
+                    target += onOwn * (Vector3.Lerp(w.legs[i].upper.t.position, w.legs[i].fore.t.position, 0.6f) + Vector3.up * 0.07f + outward * 0.03f);
+                    pole += onOwn * (outward - fwd * 0.3f + Vector3.up * 0.2f);
                 }
-                else
+                if (onChest > 0.001f)
                 {
-                    target = chest + outward * 0.14f;
-                    float top = Instance.HeroTopAt(target);
+                    Vector3 spot = chest + outward * 0.14f;
+                    float top = Instance.HeroTopAt(spot);
                     if (!float.IsNegativeInfinity(top))
                     {
                         // On his chest, not inside it.
-                        target.y = top + 0.03f;
+                        spot.y = Mathf.Lerp(spot.y, top + 0.03f, chestReal);
                     }
-                    pole = outward + Vector3.up * 0.4f;
+                    target += onChest * spot;
+                    pole += onChest * (outward + Vector3.up * 0.4f);
                 }
-                Ik(arm, target, pole, poseW);
+                Ik(arm, target / onSum, pole / onSum, poseW);
             }
 
             // Where her crotch is, without the motion of the stroke: the middle of her hip joints, less the sideways and

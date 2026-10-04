@@ -16,14 +16,12 @@ namespace CMAShake
     {
         public const string PluginGuid = "community.cma.shake";
         public const string PluginName = "CMA Shake";
-        public const string PluginVersion = "0.15.0";
+        public const string PluginVersion = "0.14.1";
 
         internal static ManualLogSource ModLog;
         internal static ConfigFile Cfg;
         internal static ConfigEntry<KeyCode> MenuKey;
         internal static ConfigEntry<string> Language;
-        internal static ConfigEntry<float> WindowX, WindowY, WindowHeight, UiScale;
-        internal static ConfigEntry<bool> WindowCollapsed;
 
         internal static ConfigEntry<KeyCode> ToggleKey;
         internal static ConfigEntry<bool> ShowNotice;
@@ -93,11 +91,6 @@ namespace CMAShake
 
             MenuKey = Config.Bind("Input", "MenuKey", KeyCode.J, "Key that opens or closes the settings window (bikini, colour, twerk and ride settings).");
             Language = Config.Bind("UI", "Language", "auto", "Language of the settings window and of the notices on the screen: ru, en, or auto (Russian when the system is in Russian, English otherwise).");
-            WindowX = Config.Bind("UI", "WindowX", 24f, "Where the settings window was left: distance from the left edge of the screen.");
-            WindowY = Config.Bind("UI", "WindowY", 24f, "Where the settings window was left: distance from the top of the screen.");
-            WindowHeight = Config.Bind("UI", "WindowHeight", 0f, "Height of the settings window (drag its bottom-right corner). 0 = as tall as fits the screen.");
-            UiScale = Config.Bind("UI", "Scale", 1f, "Size of the settings window: 0.75 to 1.5.");
-            WindowCollapsed = Config.Bind("UI", "Collapsed", false, "The settings window is folded to a small bar with the start buttons.");
             ToggleKey = Config.Bind("Input", "ToggleKey", KeyCode.H, "Key that starts or stops the twerk.");
             ShowNotice = Config.Bind("Input", "ShowNotice", true, "Show an on-screen notice while twerking.");
 

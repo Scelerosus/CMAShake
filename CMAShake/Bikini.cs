@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Assets;
 using Assets._ReusableScripts.CuchiCuchi;
 using Assets._ReusableScripts.CuchiCuchi.Chars.Ropa.Memorias;
 using Assets._ReusableScripts.CuchiCuchi.Ropa;
@@ -14,6 +15,7 @@ namespace CMAShake
     {
         private sealed class State
         {
+            public Character woman;
             public IRopaManager manager;
             public readonly List<string> hidden = new List<string>();
             public readonly List<string> added = new List<string>();
@@ -112,8 +114,30 @@ namespace CMAShake
             return maps;
         }
 
+        // A woman who is gone (another scene was loaded, she was removed) takes what was remembered of her with her. Left in,
+        // a bikini "still on" someone who no longer exists kept the switch stuck at worn, and it could not be put on again.
+        private static void Prune()
+        {
+            List<long> gone = null;
+            foreach (KeyValuePair<long, State> kv in States)
+            {
+                if (kv.Value.woman == null)
+                {
+                    (gone ?? (gone = new List<long>())).Add(kv.Key);
+                }
+            }
+            if (gone != null)
+            {
+                foreach (long key in gone)
+                {
+                    States.Remove(key);
+                }
+            }
+        }
+
         internal static bool AnyOn()
         {
+            Prune();
             foreach (State s in States.Values)
             {
                 if (s.on)
@@ -142,6 +166,7 @@ namespace CMAShake
                 return;
             }
 
+            Prune();
             var characters = Resources.FindObjectsOfTypeAll<Character>();
             if (characters == null)
             {
@@ -149,7 +174,8 @@ namespace CMAShake
             }
             foreach (Character c in characters)
             {
-                if (c == null || !c.gameObject.scene.IsValid() || !c.gameObject.activeInHierarchy)
+                // Women only: the hero has a wardrobe too.
+                if (c == null || !c.gameObject.scene.IsValid() || !c.gameObject.activeInHierarchy || c.sexo == Sexo.masculino)
                 {
                     continue;
                 }
@@ -164,6 +190,7 @@ namespace CMAShake
                     state = new State();
                     States[key] = state;
                 }
+                state.woman = c;
                 state.manager = admin.manager;
                 try
                 {

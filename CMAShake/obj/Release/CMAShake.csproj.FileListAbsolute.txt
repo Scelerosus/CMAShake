@@ -10,3 +10,4 @@ C:\Users\Scelerosus\source\repos\CMAShake\obj\Release\refint\CMAShake.dll
 C:\Users\Scelerosus\source\repos\CMAShake\obj\Release\ref\CMAShake.dll
 C:\Users\Scelerosus\AppData\Local\Temp\cmashake_out\CMAShake.deps.json
 C:\Users\Scelerosus\AppData\Local\Temp\cmashake_out\CMAShake.dll
+C:\Users\Scelerosus\source\repos\CMAShake\obj\Release\CMAShake.csproj.Up2Date
